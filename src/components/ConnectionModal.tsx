@@ -1,0 +1,833 @@
+import { AlertCircle, Check, CheckCircle2, Copy, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { GasConfig } from '../types/fleet';
+
+const FULL_CODE_GS = `const PAROLA = 'TRANSPORT';
+const TAB_CURSE = 'sheet 1', TAB_VIZE = 'vize medicale', TAB_FLOTA = 'flota', TAB_ISTORIC = 'istoric', TAB_LIBERE = 'remorci libere', TAB_TOTAL = 'total concediu', TAB_IST_REM = 'istoric remorci';
+const AN_CONCEDIU = new Date().getFullYear();
+const LUNI = ['ian', 'feb', 'mar', 'apr', 'mai', 'iun', 'iul', 'aug', 'sep', 'oct', 'noi', 'dec'];
+
+function out_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+function sheet_(n) {
+  const k = n.toLowerCase();
+  return SpreadsheetApp.getActiveSpreadsheet().getSheets().find(s => s.getName().trim().toLowerCase() === k);
+}
+function vals_(n, cols) {
+  const sh = sheet_(n);
+  if (!sh) return [];
+  return sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), cols).getDisplayValues();
+}
+function esteConcediu_(nume) {
+  const n = String(nume).trim().toLowerCase();
+  return n.indexOf('concediu') >= 0 && n !== TAB_TOTAL;
+}
+function sheetConcediu_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheets().find(s => esteConcediu_(s.getName()));
+}
+function istoric_() {
+  const sh = sheet_(TAB_ISTORIC);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const n = sh.getLastRow(), start = Math.max(2, n - 149);
+  return sh.getRange(start, 1, n - start + 1, 7).getDisplayValues();
+}
+function plain_(s) {
+  return String(s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().trim();
+}
+function norm_(s) {
+  return plain_(s).replace(/[^a-z0-9 ]/g, ' ').split(/\\s+/).filter(Boolean).sort().join(' ');
+}
+function log_(user, tab, row, actiune, inainte, dupa) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(TAB_ISTORIC);
+  if (!sh) {
+    sh = ss.insertSheet(TAB_ISTORIC);
+    sh.appendRow(['Data și ora', 'Utilizator', 'Tab', 'Rând', 'Acțiune', 'Înainte', 'După']);
+    sh.setFrozenRows(1);
+  }
+  const t = Utilities.formatDate(new Date(), 'Europe/Bucharest', 'dd.MM.yyyy HH:mm:ss');
+  sh.appendRow([t, user, tab, row, actiune, inainte, dupa]);
+}
+function parseRo_(s) {
+  const m = String(s || '').match(/(\\d{1,2})[.\\/-](\\d{1,2})[.\\/-](\\d{4})/);
+  return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
+}
+function fmtRo_(d) {
+  const p = n => ('0' + n).slice(-2);
+  return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear();
+}
+function azi_() {
+  const z = Utilities.formatDate(new Date(), 'Europe/Bucharest', 'yyyy-MM-dd').split('-');
+  return new Date(+z[0], +z[1] - 1, +z[2]);
+}
+const TIPURI_CONCEDIU = ['CO', 'CM', 'L', 'CFP'];
+function concediuRows_() {
+  const sh = sheetConcediu_();
+  if (!sh) return [];
+  const r = Math.max(sh.getLastRow(), 1);
+  const c = Math.max(sh.getLastColumn(), 14);
+  return sh.getRange(1, 1, r, c).getDisplayValues();
+}
+function concediuMeta_(sh, ensureTypeCols) {
+  let lastCol = Math.max(sh.getLastColumn(), 14);
+  let headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  const findCols = () => {
+    const monthCols = {}, typeCols = {};
+    let totalCol = -1;
+    headers.forEach((h, idx) => {
+      const p = plain_(h);
+      if (p.indexOf('total') >= 0 && !/\\b(co|cm|l|cfp)\\b/.test(p)) totalCol = idx + 1;
+      for (let t = 0; t < TIPURI_CONCEDIU.length; t++) {
+        const k = TIPURI_CONCEDIU[t].toLowerCase();
+        if (p === k || p === 'total ' + k || p.slice(-(k.length + 1)) === ' ' + k) typeCols[TIPURI_CONCEDIU[t]] = idx + 1;
+      }
+      for (let m = 0; m < 12; m++) {
+        if (p.indexOf(LUNI[m]) === 0 || (m === 10 && p.indexOf('nov') === 0)) monthCols[m] = idx + 1;
+      }
+    });
+    return { monthCols, totalCol, typeCols };
+  };
+  let info = findCols();
+  if (ensureTypeCols) {
+    let added = false;
+    for (let t = 0; t < TIPURI_CONCEDIU.length; t++) {
+      const code = TIPURI_CONCEDIU[t];
+      if (!info.typeCols[code]) {
+        lastCol += 1;
+        sh.getRange(1, lastCol).setValue('TOTAL ' + code);
+        added = true;
+      }
+    }
+    if (added) {
+      headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+      info = findCols();
+    }
+  }
+  return { lastCol: lastCol, headers: headers, monthCols: info.monthCols, totalCol: info.totalCol, typeCols: info.typeCols };
+}
+function detectLeavePrefix_(raw) {
+  const s = String(raw || '').trim();
+  const n = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+  const m = n.match(/^(concediu\\s+fara\\s+plata|fara\\s+plata|cfp|fp|concediu\\s+medical|medical|cm|concediu\\s+odihna|odihna|co|libere|liber|l)(?:\\b|(?=\\d))[\\s:.-]*(.*)$/i);
+  if (!m) return { type: null, rest: s };
+  const kw = m[1].toLowerCase().replace(/\\s+/g, ' ');
+  let t = 'CO';
+  if (kw === 'cfp' || kw === 'fp' || kw.indexOf('fara plata') >= 0) t = 'CFP';
+  else if (kw === 'cm' || kw.indexOf('medical') >= 0) t = 'CM';
+  else if (kw === 'l' || kw.indexOf('liber') === 0) t = 'L';
+  return { type: t, rest: m[2].trim() };
+}
+function recalcConcediuRow_(sh, row, meta) {
+  const mInfo = meta || concediuMeta_(sh, true);
+  const rowVals = sh.getRange(row, 1, 1, mInfo.lastCol).getDisplayValues()[0];
+  let totalAll = 0;
+  const totalsByType = { CO: 0, CM: 0, L: 0, CFP: 0 };
+  for (let m = 0; m < 12; m++) {
+    const cIdx = (mInfo.monthCols[m] || (m + 2)) - 1;
+    const txt = String(rowVals[cIdx] || '').trim();
+    if (!txt) continue;
+    const seenAll = {}, seenType = { CO: {}, CM: {}, L: {}, CFP: {} };
+    txt.split(/[;\\n]+/).forEach(clause => {
+      let activeType = 'CO';
+      clause.split(',').forEach(rawSeg => {
+        const det = detectLeavePrefix_(rawSeg);
+        if (det.type) activeType = det.type;
+        const cl = det.rest.replace(/^[a-zA-Z.\\s]+(?=\\d)/, '').trim();
+        if (!cl) return;
+        const rp = cl.split(/\\s*[-–—]+\\s*/).filter(Boolean);
+        const pDay = s => {
+          const dm = String(s).match(/(\\d{1,2})[.\\/-](\\d{1,2})/);
+          if (dm) return new Date(AN_CONCEDIU, +dm[2] - 1, +dm[1]);
+          const d1 = String(s).match(/\\b(\\d{1,2})\\b/);
+          return d1 ? new Date(AN_CONCEDIU, m, +d1[1]) : null;
+        };
+        const a = pDay(rp[0]), b2 = pDay(rp[rp.length - 1]);
+        if (a && b2 && b2 >= a) {
+          for (let d = new Date(a.getTime()); d <= b2; d.setDate(d.getDate() + 1)) {
+            const dk = d.getMonth() + '-' + d.getDate();
+            seenAll[dk] = true;
+            seenType[activeType][dk] = true;
+          }
+        }
+      });
+    });
+    totalAll += Object.keys(seenAll).length;
+    TIPURI_CONCEDIU.forEach(t => { totalsByType[t] += Object.keys(seenType[t]).length; });
+  }
+  if (mInfo.totalCol > 0 && !sh.getRange(row, mInfo.totalCol).getFormula()) {
+    sh.getRange(row, mInfo.totalCol).setValue(totalAll);
+  }
+  TIPURI_CONCEDIU.forEach(t => {
+    const col = mInfo.typeCols[t];
+    if (col > 0 && !sh.getRange(row, col).getFormula()) sh.getRange(row, col).setValue(totalsByType[t]);
+  });
+}
+function actualizeazaTotaluriConcediu() {
+  const sh = sheetConcediu_();
+  if (!sh || sh.getLastRow() < 2) return;
+  const meta = concediuMeta_(sh, true);
+  for (let r = 2; r <= sh.getLastRow(); r++) {
+    if (String(sh.getRange(r, 1).getDisplayValue() || '').trim()) recalcConcediuRow_(sh, r, meta);
+  }
+}
+function refreshRemorciLibere_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let libSh = sheet_(TAB_LIBERE);
+  if (!libSh) {
+    libSh = ss.insertSheet('REMORCI LIBERE');
+  }
+  const fl = vals_(TAB_FLOTA, 4), cu = vals_(TAB_CURSE, 8), ir = vals_(TAB_IST_REM, 17);
+  const azi = azi_(), names = {}, ultima = {}, activa = {}, sofer = {};
+  const normK = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const reg = (raw, prefer) => {
+    const clean = String(raw || '').trim();
+    if (!clean || /^schimb/i.test(clean)) return '';
+    const k = normK(clean);
+    if (!k) return '';
+    if (prefer || !names[k]) names[k] = clean;
+    return k;
+  };
+  for (let i = 1; i < fl.length; i++) reg(fl[i][1], true);
+  for (let i = 1; i < cu.length; i++) {
+    const nr = String(cu[i][1] || ''), rem = (nr.split('/')[1] || '').trim();
+    const k = reg(rem, false);
+    if (!k) continue;
+    const drv = String(cu[i][7] || '').trim();
+    const d = parseRo_(cu[i][2]);
+    const hasTara = Boolean(String(cu[i][3] || '').trim());
+    const hasLoc = Boolean(String(cu[i][4] || '').trim());
+    if (d && d >= azi && hasTara && hasLoc) {
+      activa[k] = true;
+    }
+    if (d && ((hasTara && hasLoc) || d < azi)) {
+      if (!ultima[k] || d >= ultima[k]) { ultima[k] = d; if (drv) sofer[k] = drv; }
+    } else if (drv && !sofer[k]) {
+      sofer[k] = drv;
+    }
+  }
+  for (let i = 1; i < ir.length; i++) {
+    const kPred = reg(ir[i][2], false);
+    if (kPred) {
+      const dPred = parseRo_(ir[i][6]) || parseRo_(ir[i][9]);
+      const sofPred = String(ir[i][10] || '').trim();
+      if (dPred && (!ultima[kPred] || dPred >= ultima[kPred])) {
+        ultima[kPred] = dPred;
+        if (sofPred) sofer[kPred] = sofPred;
+      } else if (sofPred && !sofer[kPred]) {
+        sofer[kPred] = sofPred;
+      }
+    }
+    const kPrel = reg(ir[i][3], false);
+    if (kPrel) {
+      const dPrel = parseRo_(ir[i][16]) || parseRo_(ir[i][13]);
+      const sofPrel = String(ir[i][12] || '').trim();
+      if (dPrel && (!ultima[kPrel] || dPrel >= ultima[kPrel])) {
+        ultima[kPrel] = dPrel;
+        if (sofPrel) sofer[kPrel] = sofPrel;
+      } else if (sofPrel && !sofer[kPrel]) {
+        sofer[kPrel] = sofPrel;
+      }
+    }
+  }
+  const list = [];
+  Object.keys(names).forEach(k => {
+    if (!activa[k]) list.push({ rem: names[k], d: ultima[k] || null, sof: sofer[k] || '' });
+  });
+  list.sort((a, b) => (a.d ? a.d.getTime() : 0) - (b.d ? b.d.getTime() : 0));
+  const header = ['Remorcă liberă', 'Nefolosită din', 'Ultimul șofer'];
+  const rows = list.map(x => [x.rem, x.d ? fmtRo_(x.d) : 'fără curse', x.sof]);
+  const target = [header].concat(rows);
+  const curRows = libSh.getLastRow();
+  const curCols = libSh.getLastColumn();
+  if (curRows === target.length && curCols >= 3) {
+    const curVals = libSh.getRange(1, 1, curRows, 3).getDisplayValues();
+    if (JSON.stringify(curVals) === JSON.stringify(target)) return;
+  }
+  libSh.clearContents();
+  libSh.getRange(1, 1, target.length, 3).setValues(target);
+}
+function normRem_(r) {
+  const s = String(r || '').trim();
+  return !s || /^schimb/i.test(s) ? '' : s;
+}
+function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldTara, oldLoc, oldSofer, newData, newTara, newLoc, newSofer) {
+  const oldRem = normRem_(oldRemRaw);
+  const newRem = normRem_(newRemRaw);
+  if (!oldRem && !newRem) return;
+  if (oldRem.toUpperCase() === newRem.toUpperCase()) return;
+
+  let remSh = sheet_(TAB_IST_REM);
+  if (!remSh) {
+    remSh = SpreadsheetApp.getActiveSpreadsheet().insertSheet(TAB_IST_REM);
+    remSh.appendRow([
+      'Nr crt', 'Nr camion', 'remorca predata', 'remorca preluata',
+      'data preluarii', 'localitatea', 'data predarii', 'tara descarcarii',
+      'localitatea', 'data descarcarii', 'sofer care preda', 'cap tractor',
+      'sofer care preia', 'data preluarii', 'TARA', 'localitatea', 'data descarcareii'
+    ]);
+    remSh.setFrozenRows(1);
+  }
+
+  const todayStr = fmtRo_(azi_());
+  const lastRow = Math.max(remSh.getLastRow(), 1);
+  const rows = lastRow > 1 ? remSh.getRange(2, 1, lastRow - 1, 17).getDisplayValues() : [];
+
+  let maxNr = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const a = String(rows[i][0] || '').trim();
+    if (/^\\d+$/.test(a)) {
+      const n = parseInt(a, 10);
+      if (n > maxNr) maxNr = n;
+    }
+  }
+
+  const cam = String(camion || '').trim();
+  const camionUp = cam.toUpperCase();
+  const newRemUp = newRem.toUpperCase();
+  const oldRemUp = oldRem.toUpperCase();
+  let matchedPrevHandover = false;
+
+  if (newRem) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (String(rows[i][2] || '').trim().toUpperCase() === newRemUp && !String(rows[i][11] || '').trim()) {
+        remSh.getRange(i + 2, 12, 1, 6).setValues([[
+          cam,
+          String(newSofer || '').trim(),
+          todayStr,
+          String(newTara || '').trim(),
+          String(newLoc || '').trim(),
+          String(newData || '').trim()
+        ]]);
+        matchedPrevHandover = true;
+        break;
+      }
+    }
+    if (!oldRem && !matchedPrevHandover) {
+      remSh.appendRow([
+        maxNr + 1,
+        cam,
+        '',
+        newRem,
+        '',
+        String(swapLoc || '').trim(),
+        '',
+        '',
+        '',
+        '',
+        '',
+        cam,
+        String(newSofer || '').trim(),
+        todayStr,
+        String(newTara || '').trim(),
+        String(newLoc || '').trim(),
+        String(newData || '').trim()
+      ]);
+      return;
+    }
+  }
+
+  if (oldRem) {
+    let dataPreluariiAnt = '';
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const rCam = String(rows[i][1] || '').trim().toUpperCase();
+      const rPred = String(rows[i][2] || '').trim().toUpperCase();
+      const rPrel = String(rows[i][3] || '').trim().toUpperCase();
+      const rCapPreia = String(rows[i][11] || '').trim().toUpperCase();
+      if (rCam === camionUp && rPrel === oldRemUp) {
+        dataPreluariiAnt = String(rows[i][13] || rows[i][6] || '').trim();
+        break;
+      }
+      if (rPred === oldRemUp && rCapPreia === camionUp) {
+        dataPreluariiAnt = String(rows[i][13] || '').trim();
+        break;
+      }
+    }
+    remSh.appendRow([
+      maxNr + 1,
+      cam,
+      oldRem,
+      newRem,
+      dataPreluariiAnt,
+      String(swapLoc || '').trim(),
+      todayStr,
+      String(oldTara || '').trim(),
+      String(oldLoc || '').trim(),
+      String(oldData || '').trim(),
+      String(oldSofer || newSofer || '').trim(),
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ]);
+  }
+}
+function onEdit(e) {
+  if (!e || !e.range) return;
+  const sh = e.range.getSheet();
+  const name = sh.getName();
+  const low = name.trim().toLowerCase();
+  if (low === TAB_ISTORIC || low === TAB_IST_REM || low === TAB_LIBERE || low === TAB_TOTAL) return;
+  const row = e.range.getRow();
+  if (row <= 1) return;
+  const col = e.range.getColumn();
+  const oldVal = e.oldValue !== undefined ? String(e.oldValue) : '';
+  const newVal = e.range.getDisplayValue();
+  if (oldVal !== newVal) {
+    const header = String(sh.getRange(1, col).getDisplayValue() || ('Col ' + col)).trim();
+    const rowLabel = String(sh.getRange(row, 1).getDisplayValue() || '').trim();
+    const prefix = rowLabel && col > 1 ? rowLabel + ' · ' : '';
+    log_('Google Sheet', name, row, 'Editare Excel', prefix + header + ': ' + (oldVal || 'gol'), prefix + header + ': ' + (newVal || 'gol'));
+  }
+  if (low === TAB_CURSE && col === 2 && oldVal !== newVal) {
+    const rowVals = sh.getRange(row, 1, 1, 8).getDisplayValues()[0];
+    const camNew = (newVal.split('/')[0] || '').trim() || (oldVal.split('/')[0] || '').trim();
+    const oldRem = (oldVal.split('/')[1] || '').trim();
+    const newRem = (newVal.split('/')[1] || '').trim();
+    logIstoricRemorci_(
+      camNew,
+      oldRem,
+      newRem,
+      '',
+      rowVals[2],
+      rowVals[3],
+      rowVals[4],
+      rowVals[7],
+      rowVals[2],
+      rowVals[3],
+      rowVals[4],
+      rowVals[7]
+    );
+  }
+  if (esteConcediu_(name)) recalcConcediuRow_(sh, row);
+  if (low === TAB_CURSE || low === TAB_FLOTA) refreshRemorciLibere_();
+}
+function doGet(e) {
+  if (!e || (e.parameter.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
+  refreshRemorciLibere_();
+  return out_({
+    scriptVersion: '2.6',
+    curse: vals_(TAB_CURSE, 8),
+    vize: vals_(TAB_VIZE, 4),
+    flota: vals_(TAB_FLOTA, 4),
+    concediu: concediuRows_(),
+    istoric: istoric_(),
+    istoricRemorci: vals_(TAB_IST_REM, 17)
+  });
+}
+function doPost(e) {
+  const b = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  if ((b.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
+  if (b.action && b.action !== 'write') return out_({ error: 'Acțiune necunoscută' });
+  const user = String(b.user || 'Dispecer').trim();
+  const vals = Array.isArray(b.values) ? b.values : [];
+
+  if (b.kind === 'curse') {
+    const sh = sheet_(TAB_CURSE);
+    if (!sh) return out_({ error: 'Foaia sheet 1 lipsește' });
+    const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    const oldRow = b.row ? sh.getRange(row, 1, 1, 8).getDisplayValues()[0] : [];
+    const before = oldRow.length ? oldRow.join(' | ') : '';
+    const v8 = Array.from({ length: 8 }, (_, i) => String(vals[i] || ''));
+    const oldNr = String(oldRow[1] || '');
+    const oldRem = (oldNr.split('/')[1] || '').trim();
+    const newRem = (String(v8[1] || '').split('/')[1] || '').trim();
+    const camNew = (String(v8[1] || '').split('/')[0] || '').trim() || (oldNr.split('/')[0] || '').trim();
+    sh.getRange(row, 1, 1, 8).setValues([v8]);
+    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v8.join(' | '));
+    logIstoricRemorci_(
+      camNew,
+      oldRem,
+      newRem,
+      String(b.loc || ''),
+      oldRow[2] || '',
+      oldRow[3] || '',
+      oldRow[4] || '',
+      oldRow[7] || '',
+      v8[2] || '',
+      v8[3] || '',
+      v8[4] || '',
+      v8[7] || ''
+    );
+    refreshRemorciLibere_();
+    return out_({ ok: true, row });
+  }
+
+  if (b.kind === 'vize') {
+    const sh = sheet_(TAB_VIZE);
+    if (!sh) return out_({ error: 'Foaia vize medicale lipsește' });
+    const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    const before = b.row ? sh.getRange(row, 2, 1, 3).getDisplayValues()[0].join(' | ') : '';
+    const v3 = [String(vals[0] || ''), String(vals[1] || ''), String(vals[2] || '')];
+    if (!b.row) sh.getRange(row, 1).setValue(row - 1);
+    sh.getRange(row, 2, 1, 3).setValues([v3]);
+    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v3.join(' | '));
+    return out_({ ok: true, row });
+  }
+
+  if (b.kind === 'concediu') {
+    const sh = sheetConcediu_();
+    if (!sh) return out_({ error: 'Foaia de concediu lipsește' });
+    const nume = String(vals[0] || '').trim();
+    if (!nume) return out_({ error: 'Numele șoferului lipsește' });
+
+    const meta = concediuMeta_(sh, true);
+    const lastRow = Math.max(sh.getLastRow(), 1);
+    const names = sh.getRange(1, 1, lastRow, 1).getDisplayValues().map(r => r[0]);
+    let row = names.findIndex((n, idx) => idx > 0 && norm_(n) === norm_(nume)) + 1;
+    if (row <= 0) {
+      row = lastRow + 1;
+      sh.getRange(row, 1).setValue(nume);
+    }
+
+    const monthIdxNum = Number(vals[1]);
+    if (!isNaN(monthIdxNum) && monthIdxNum >= 0 && monthIdxNum <= 11 && /^\\d{1,2}$/.test(String(vals[1]).trim())) {
+      const col = meta.monthCols[monthIdxNum] || (monthIdxNum + 2);
+      const cellText = String(vals[2] || '').trim();
+      const before = String(sh.getRange(row, col).getDisplayValue() || '').trim();
+      sh.getRange(row, col).setValue(cellText);
+      const monthName = meta.headers[col - 1] || LUNI[monthIdxNum].toUpperCase();
+      recalcConcediuRow_(sh, row, meta);
+      log_(user, sh.getName(), row, before ? 'Modificare' : 'Adăugare', nume + ' (' + monthName + ': ' + (before || 'gol') + ')', nume + ' (' + monthName + ': ' + (cellText || 'șters') + ')');
+      return out_({ ok: true, row });
+    }
+
+    return out_({ error: 'Format lună/valoare invalid' });
+  }
+
+  return out_({ error: 'Acțiune necunoscută' });
+}`;
+
+interface ConnectionModalProps {
+  open: boolean;
+  config: GasConfig;
+  initialTab?: 'connect' | 'audit';
+  scriptOutdated?: boolean;
+  testing: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSaveAndConnect: (nextConfig: GasConfig) => Promise<void>;
+  onSwitchToDemo: () => void;
+}
+
+export function ConnectionModal({
+  open,
+  config,
+  initialTab = 'connect',
+  scriptOutdated = false,
+  testing,
+  error,
+  onClose,
+  onSaveAndConnect,
+  onSwitchToDemo,
+}: ConnectionModalProps) {
+  const [tab, setTab] = useState<'connect' | 'audit'>(initialTab);
+  const [scriptUrl, setScriptUrl] = useState(config.scriptUrl);
+  const [key, setKey] = useState(config.key);
+  const [user, setUser] = useState(config.user);
+  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setTab(initialTab);
+    setScriptUrl(config.scriptUrl);
+    setKey(config.key);
+    setUser(config.user);
+    setCopied(false);
+    setCopiedLink(false);
+  }, [open, config, initialTab]);
+
+  if (!open) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await onSaveAndConnect({
+      scriptUrl: scriptUrl.trim(),
+      key: key.trim(),
+      user: user.trim() || 'Dispecer',
+      mode: 'live',
+    });
+  };
+
+  const handleCopyScript = async () => {
+    try {
+      await navigator.clipboard.writeText(FULL_CODE_GS);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleCopyPhoneLink = async () => {
+    if (!scriptUrl.trim()) return;
+    const params = new URLSearchParams({
+      gas: scriptUrl.trim(),
+      key: key.trim() || 'TRANSPORT',
+      user: user.trim() || 'Dispecer',
+    });
+    const shareUrl = `${window.location.origin}/?${params.toString()}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2500);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40">
+      <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-xl pb-[env(safe-area-inset-bottom)]">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div>
+            <h2 className="font-display text-base font-semibold text-slate-900">
+              Google Apps Script & Instalare Mobil
+            </h2>
+            <p className="text-xs text-slate-500">
+              Conectare bidirecțională Google Sheets ↔ Aplicație pentru Curse, Vize și Concedii
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md"
+            aria-label="Închide"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-6 pt-4 border-b border-slate-200 flex gap-4 text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => setTab('connect')}
+            className={`pb-2.5 border-b-2 transition-colors ${
+              tab === 'connect'
+                ? 'border-blue-700 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Conectare Google Sheet
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('audit')}
+            className={`pb-2.5 border-b-2 transition-colors ${
+              tab === 'audit'
+                ? 'border-blue-700 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Script Google (Code.gs) & iOS/Android
+          </button>
+        </div>
+
+        {tab === 'connect' ? (
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2.5 text-xs text-red-700">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {scriptOutdated && config.mode === 'live' && !error && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start justify-between gap-2.5 text-xs text-amber-900">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-700" />
+                  <span>
+                    URL-ul actual răspunde cu o versiune mai veche a scriptului (fără sincronizarea completă v2.6 pentru Remorci libere fără dată/țară/localitate, Concedii și Istoric remorci A–Q).
+                    În Apps Script alege <strong>Implementare → Gestionați implementările → Versiune nouă</strong> sau lipește aici noul URL <code className="font-mono">/exec</code>.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTab('audit')}
+                  className="font-semibold underline whitespace-nowrap shrink-0"
+                >
+                  Vezi scriptul
+                </button>
+              </div>
+            )}
+
+            {config.mode === 'live' && !error && !scriptOutdated && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2.5 text-xs text-emerald-800">
+                <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>Conectat la Google Sheets Live (versiunea 2.6 bidirecțională).</span>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  URL aplicație web Google Apps Script
+                </label>
+                <input
+                  type="url"
+                  required
+                  value={scriptUrl}
+                  onChange={(e) => setScriptUrl(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  className="w-full px-3 py-2 font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Parolă script (<code className="font-mono">PAROLA</code>)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    placeholder="TRANSPORT"
+                    className="w-full px-3 py-2 font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Nume dispecer (<code className="font-mono">user</code> în istoric)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={user}
+                    onChange={(e) => setUser(e.target.value)}
+                    placeholder="ex. Ion Popescu"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={onSwitchToDemo}
+                className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
+              >
+                Folosește date demonstrative
+              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {scriptUrl.trim().startsWith('https://script.google.com/') && (
+                  <button
+                    type="button"
+                    onClick={handleCopyPhoneLink}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
+                  >
+                    {copiedLink ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" />
+                        <span>Link telefon copiat!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copiază link pt. telefon</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  Închide
+                </button>
+                <button
+                  type="submit"
+                  disabled={testing}
+                  className="px-4 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50"
+                >
+                  {testing ? 'Se conectează...' : 'Conectează și sincronizează'}
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <div className="p-6 space-y-4 text-xs text-slate-700">
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg space-y-1 text-amber-950">
+              <div className="font-semibold">
+                Important — de ce apare „Acțiune necunoscută” dacă doar apeși Salvează:
+              </div>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>
+                  În Apps Script, după ce lipești codul de mai jos și apeși <strong>Salvează</strong>, linkul <code className="font-mono">/exec</code> NU se actualizează singur.
+                </li>
+                <li>
+                  Trebuie să apeși <strong>Implementare → Gestionați implementările → Editați (creion) → Versiune nouă → Implementează</strong>.
+                </li>
+                <li>
+                  Dacă ai apăsat <em>Implementare nouă</em> în loc să editezi, copiază noul link <code className="font-mono">/exec</code> și lipește-l în tab-ul <strong>Conectare Google Sheet</strong>.
+                </li>
+              </ol>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-semibold text-slate-900">
+                  1. Script complet Google Apps Script (`Code.gs`)
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyScript}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      <span>Copiat!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copiază tot scriptul</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="text-slate-600">
+                Sincronizează în ambele sensuri: modificările din aplicație ajung în Google Sheet, iar editările făcute direct în Google Sheet (<code className="font-mono">onEdit</code>) actualizează automat totalurile, remorcile libere și istoricul.
+              </p>
+              <pre className="p-3 bg-slate-900 text-slate-100 rounded-lg overflow-x-auto max-h-56 font-mono text-[11px] leading-relaxed">
+                {FULL_CODE_GS}
+              </pre>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+              <div className="font-semibold text-slate-900">
+                2. Instalare pe telefon (iOS & Android)
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-slate-600">
+                <li>
+                  <strong>iOS (Safari)</strong>: Apasă <strong>Partajare → Adaugă pe ecranul principal</strong>.
+                </li>
+                <li>
+                  <strong>Android (Chrome)</strong>: Apasă butonul <strong>Instalează aplicația</strong> din bara de sus sau din meniu.
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800"
+              >
+                Închide
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

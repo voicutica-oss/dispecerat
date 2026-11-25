@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<title>Dispecerat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f3d7a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dispecerat">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f2f4f8;--card:#fff;--tx:#14213d;--mut:#6b7686;--pri:#0f3d7a;--red:#d92d20;--ora:#e8780a;--line:#e1e5ec;--ok:#12805c}
+@media(prefers-color-scheme:dark){:root{--bg:#10151d;--card:#1a212c;--tx:#eef2f7;--mut:#93a0b3;--line:#2b3442;--pri:#4d8fe0}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{position:sticky;top:0;z-index:10;background:var(--pri);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;display:flex;align-items:center;gap:8px}
+header h1{font-size:19px;margin:0;flex:1}
+.hb{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:10px;padding:8px 12px;font-size:14px;font-weight:600}
+main{padding:12px 12px calc(150px + env(safe-area-inset-bottom))}
+#banner{display:none;border-radius:14px;padding:12px 14px;margin-bottom:12px;background:#fff1f0;border:2px solid var(--red);color:#7a1a12}
+@media(prefers-color-scheme:dark){#banner{background:#3a1714;color:#ffd5d0}}
+#banner h3{margin:0 0 6px;font-size:15px}#banner div{font-size:14px;margin:3px 0}#banner button{margin-top:8px}
+.bar{display:flex;gap:8px;margin-bottom:10px}
+.bar input{flex:1;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--tx);font-size:16px}
+.btn{border:0;border-radius:12px;padding:12px 16px;font-size:15px;font-weight:700;background:var(--pri);color:#fff}
+.btn.sec{background:var(--card);color:var(--tx);border:1px solid var(--line)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:5px 11px;font-size:13px;color:var(--mut)}
+.chip.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.card{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:10px;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card.al{border-color:var(--red)}.card.or{border-color:var(--ora)}
+.top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.nr{font-weight:800;font-size:16px}.dt{font-weight:700;color:var(--pri);white-space:nowrap}
+.row{font-size:14px;color:var(--mut);margin-top:3px}.row b{color:var(--tx);font-weight:600}
+.tag{display:inline-block;font-size:11px;font-weight:800;color:#fff;background:var(--red);border-radius:6px;padding:2px 7px;margin:6px 4px 0 0}
+.tag.or{background:var(--ora)}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:10}
+nav button{flex:1;border:0;background:none;padding:12px 0;font-size:14px;font-weight:700;color:var(--mut)}
+nav button.on{color:var(--pri)}
+.fab{position:fixed;right:18px;bottom:calc(76px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:50%;border:0;background:var(--pri);color:#fff;font-size:32px;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:11;display:none}
+.empty{text-align:center;color:var(--mut);padding:40px 10px}
+.login{text-align:center;padding:50px 16px}.login p{color:var(--mut)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:30;display:none;align-items:flex-end}
+.sheet{background:var(--card);width:100%;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.sheet h2{margin:0 0 12px;font-size:18px}
+label{display:block;font-size:13px;font-weight:700;color:var(--mut);margin:10px 0 4px}
+.sheet input,.sheet select,.sheet textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx);font-size:16px}
+.acts{display:flex;gap:8px;margin-top:16px}.acts .btn{flex:1}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(140px + env(safe-area-inset-bottom));background:#222;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:50;display:none;max-width:90%}
+.lnk{background:none;border:0;color:inherit;text-decoration:underline;font-weight:700;font-size:13px;padding:0 0 0 6px}.bs{margin:5px 0}.hint{color:var(--ora);font-weight:700;font-size:14px;margin-top:6px}.tag.ok{background:var(--ok)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🚛 Dispecerat</h1>
+  <button class="hb" id="bRef" style="display:none" onclick="loadAll()">↻</button>
+  <button class="hb" id="bAuth" onclick="signIn()">⚙</button>
+</header>
+<main>
+  <div id="banner"></div>
+  <div id="app"></div>
+</main>
+<button class="fab" id="fab" onclick="openForm()">+</button>
+<nav>
+  <button id="nCurse" class="on" onclick="setTab('curse')">🚚 Curse</button>
+  <button id="nVize" onclick="setTab('vize')">🩺 Vize</button>
+  <button id="nIst" onclick="setTab('istoric')">📜 Istoric</button>
+</nav>
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+<div id="toast"></div>
+
+<script>
+/* ================== CONFIGURARE ================== */
+const CONFIG = {
+  ZILE_CURSE: 2,   // alertă descărcare: azi + următoarele 2 zile
+  ZILE_VIZE: 7,
+  ZILE_CONCEDIU: 14,   // avertizare concediu: în următoarele 2 săptămâni
+    // alertă viză: expiră în 7 zile sau a expirat
+  REFRESH_SEC: 15  // verifică foaia la fiecare 15 secunde cât timp aplicația e deschisă
+};
+const COLS_CURSE = [['id','ID'],['nr','Nr camion (CAMION/REMORCĂ)'],['data','Data descărcării'],['tara','Țara'],['loc','Localitatea'],['det','Detalii'],['obs','Observații'],['sofer','Nume șofer']];
+const COLS_VIZE = [['nume','Nume'],['doc','Document'],['exp','Data expirare']];
+
+/* ================== STARE ================== */
+let token = false, cfg = {}, tab = 'curse', onlyAlerts = false, q = '';
+let D = { curse: [], vize: [], flota: { c: [], r: [], s: [] } };
+let F = { curse: {}, vize: {} };
+let editing = null, lastSig = '';
+
+let AL = null, bOpen = {}, swapCleared = false;
+/* ================== UTILE ================== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+const plain = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const pad = n => String(n).padStart(2, '0');
+function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 3500); }
+function parseDate(s) {
+  if (!s) return null;
+  const p = String(s).trim().split(/[.\/-]/).map(Number);
+  if (p.length !== 3 || p.some(isNaN)) return null;
+  let d, m, y; if (p[0] > 31) { y = p[0]; m = p[1]; d = p[2]; } else { d = p[0]; m = p[1]; y = p[2]; }
+  const dt = new Date(y, m - 1, d); return isNaN(dt) ? null : dt;
+}
+const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+const diffDays = dt => Math.round((dt - today()) / 864e5);
+const fmtDate = dt => `${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}.${dt.getFullYear()}`;
+const isoToRo = v => { if (!v) return ''; const [y, m, d] = v.split('-'); return `${d}.${m}.${y}`; };
+const roToIso = s => { const dt = parseDate(s); return dt ? `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}` : ''; };
+
+/* ================== CONECTARE (Apps Script, fără Google Cloud) ================== */
+function setToken(t) {
+  token = t;
+  $('bAuth').textContent = '⚙';
+  $('bRef').style.display = t ? '' : 'none';
+  $('fab').style.display = t ? 'block' : 'none';
+}
+function signIn() {   // deschide Setări
+  $('sheet').innerHTML = `<h2>⚙ Setări</h2>
+    <label>Adresa bazei de date (link-ul scriptului, se termină în /exec)</label>
+    <input id="s_url" type="url" value="${esc(cfg.url || '')}" placeholder="https://script.google.com/macros/s/.../exec">
+    <label>Parolă</label><input id="s_key" type="password" value="${esc(cfg.key || '')}">
+    <label>Numele tău (apare în istoricul modificărilor)</label><input id="s_name" value="${esc(cfg.name || '')}" placeholder="ex: Ion Popescu">
+    <div class="acts">${token ? '<button class="btn sec" onclick="disconnect()">Deconectare</button>' : '<button class="btn sec" onclick="closeModal()">Anulează</button>'}<button class="btn" onclick="saveSettings()">Salvează</button></div>`;
+  showModal();
+}
+function saveSettings() {
+  const url = $('s_url').value.trim(), key = $('s_key').value.trim();
+  if (!url.startsWith('https://') || !url.includes('/exec')) { toast('Adresa trebuie să se termine în /exec'); return; }
+  const name = $('s_name').value.trim();
+  if (!key) { toast('Introdu parola'); return; }
+  if (!name) { toast('Introdu numele tău'); return; }
+  cfg = { url, key, name }; localStorage.setItem('gas', JSON.stringify(cfg)); lastSig = '';
+  setToken(true); closeModal(); loadAll();
+}
+function disconnect() {
+  localStorage.removeItem('gas'); cfg = {}; setToken(false);
+  D = { curse: [], vize: [], flota: { c: [], r: [], s: [] } };
+  $('banner').style.display = 'none'; closeModal(); render();
+}
+async function loadAll(force = true) {
+  if (!token) return;
+  try {
+    const r = await fetch(`${cfg.url}?action=all&key=${encodeURIComponent(cfg.key)}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const [c, v, f] = [d.curse || [], d.vize || [], d.flota || []];
+    const sig = JSON.stringify([c, v, f, d.concediu || [], d.istoric || []]);
+    if (!force && sig === lastSig) return;   // nicio modificare în foaie
+    lastSig = sig;
+    D.curse = c.map((r, i) => ({ row: i + 1, id: r[0] || '', nr: r[1] || '', data: r[2] || '', tara: r[3] || '', loc: r[4] || '', det: r[5] || '', obs: r[6] || '', sofer: r[7] || '' }))
+      .filter((x, i) => i > 0 && (x.nr || x.data || x.sofer));
+    let lastName = '';
+    D.vize = v.map((r, i) => { const nm = (r[1] || r[0] || '').trim(); if (nm) lastName = nm; return { row: i + 1, nume: nm || lastName, doc: r[2] || '', exp: r[3] || '' }; })
+      .filter((x, i) => i > 0 && (x.doc || x.exp));
+    const fl = f.slice(1);
+    const col = n => [...new Set(fl.map(r => (r[n] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const notes = {}; fl.forEach(r => { const rem = (r[1] || '').trim(), n = (r[3] || '').trim(); if (rem && n) notes[rem] = n; });
+    D.flota = { c: col(0), r: col(1), s: col(2), notes };
+    D.concediu = parseLeave(d.concediu || []);
+    D.istoric = (d.istoric || []).map(r => ({ time: r[0] || '', user: r[1] || '', tab: r[2] || '', row: r[3] || '', act: r[4] || '', inainte: r[5] || '', dupa: r[6] || '' })).reverse();
+    render(); checkAlerts();
+  } catch (e) { toast(e.message === 'Failed to fetch' ? 'Nu mă pot conecta la script (verifică adresa)' : e.message); render(); }
+}
+
+/* ================== CONCEDII / ȘOFERI ================== */
+const drivers = s => String(s || '').split('/').map(x => x.trim()).filter(Boolean);
+const cnt = (n, a, b) => `${n} ${n === 1 ? a : b}`;
+function parseLeave(rows) {
+  const re = /\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}/g, out = [];
+  rows.forEach(r => {
+    const ds = (r.join(' ').match(re) || []).map(parseDate).filter(Boolean).sort((a, b) => a - b);
+    const cand = r.map(x => String(x || '').trim()).filter(x => x.length > 2 && !/\d/.test(x));
+    const name = cand.find(x => x.includes(' ')) || cand[0];
+    if (ds.length && name) out.push({ name, start: ds[0], end: ds[ds.length - 1] });
+  });
+  return out;
+}
+function leaveFor(driver) {
+  const k = norm(driver), t = today(), lim = new Date(t.getTime() + CONFIG.ZILE_CONCEDIU * 864e5);
+  return (D.concediu || []).filter(l => norm(l.name) === k && l.end >= t && l.start <= lim).sort((a, b) => a.start - b.start)[0] || null;
+}
+const leaveTxt = l => l.start <= today() ? `în concediu până la ${fmtDate(l.end)}` : `concediu din ${fmtDate(l.start)} (în ${diffDays(l.start)} zile)`;
+
+/* ================== ALERTE ================== */
+function alerts() {
+  const trucks = D.curse.map(c => {
+    const dt = parseDate(c.data); if (!dt) return null;
+    const n = diffDays(dt); if (n < 0 || n > CONFIG.ZILE_CURSE) return null;
+    return { c, n };
+  }).filter(Boolean).sort((a, b) => a.n - b.n);
+  const inCurse = new Set(D.curse.flatMap(c => drivers(c.sofer).map(norm)).filter(Boolean));
+  const vize = D.vize.map(v => {
+    const dt = parseDate(v.exp); if (!dt) return null;
+    const n = diffDays(dt); if (n > CONFIG.ZILE_VIZE) return null;
+    return { v, n, inCurse: inCurse.has(norm(v.nume)) };
+  }).filter(Boolean).sort((a, b) => a.n - b.n);
+  const up = D.curse.filter(c => { const d = parseDate(c.data); return d && diffDays(d) >= 0; }).flatMap(c => drivers(c.sofer));
+  const seen = new Set(), leaves = [];
+  up.forEach(n => { const k = norm(n); if (seen.has(k)) return; seen.add(k); const l = leaveFor(n); if (l) leaves.push({ name: n, l }); });
+  return { trucks, vize, leaves };
+}
+const zi = n => n === 0 ? 'AZI' : n === 1 ? 'MÂINE' : n === 2 ? 'POIMÂINE' : `în ${n} zile`;
+const exTxt = n => n < 0 ? `EXPIRAT de ${-n} zile` : n === 0 ? 'expiră AZI' : `expiră în ${n} zile`;
+
+function renderBanner() {
+  const b = $('banner'); if (!AL) return;
+  const { trucks, vize, leaves } = AL, vz = vize.filter(x => x.inCurse);
+  const vd = new Set(vz.map(x => norm(x.v.nume))).size;
+  if (!trucks.length && !vz.length && !leaves.length) { b.style.display = 'none'; return; }
+  const sec = (key, label, items) => !items.length ? '' :
+    `<div class="bs"><b>${label}</b><button class="lnk" onclick="bOpen['${key}']=!bOpen['${key}'];renderBanner()">${bOpen[key] ? 'Ascunde' : 'Arată care'}</button>${bOpen[key] ? items.map(x => `<div>${x}</div>`).join('') : ''}</div>`;
+  let h = sec('t', `🚛 ${cnt(trucks.length, 'camion descarcă', 'camioane descarcă')} în ${CONFIG.ZILE_CURSE} zile`,
+      trucks.map(t => `<b>${esc(t.c.nr.split('/')[0])}</b> – ${esc(t.c.sofer)} – ${esc(t.c.loc)} – <b>${zi(t.n)}</b>`))
+    + sec('v', `🩺 ${cnt(vd, 'șofer', 'șoferi')} cu documente care expiră (${CONFIG.ZILE_VIZE} zile)`,
+      vz.map(x => `<b>${esc(x.v.nume)}</b> – ${esc(x.v.doc)} – <b>${exTxt(x.n)}</b>`))
+    + sec('c', `🏖 ${cnt(leaves.length, 'șofer cu concediu', 'șoferi cu concediu')} în ${CONFIG.ZILE_CONCEDIU} zile`,
+      leaves.map(x => `<b>${esc(x.name)}</b> – ${esc(leaveTxt(x.l))}`));
+  if ('Notification' in window && Notification.permission === 'default')
+    h += `<button class="btn" style="margin-top:8px" onclick="askNotif()">🔔 Activează notificările</button>`;
+  b.innerHTML = h; b.style.display = 'block';
+}
+function checkAlerts() {
+  AL = alerts(); renderBanner();
+  const { trucks, vize, leaves } = AL, vz = vize.filter(x => x.inCurse);
+  const vd = new Set(vz.map(x => norm(x.v.nume))).size;
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const key = 'nf-' + fmtDate(today());
+    const sent = JSON.parse(localStorage.getItem(key) || '[]');
+    const msgs = [];
+    if (trucks.length) msgs.push(['🚛 Descărcări', `${cnt(trucks.length, 'camion descarcă', 'camioane descarcă')} în ${CONFIG.ZILE_CURSE} zile`, 't' + trucks.map(t => t.c.row + t.c.data).join()]);
+    if (vz.length) msgs.push(['🩺 Vize', `${cnt(vd, 'șofer', 'șoferi')} cu documente care expiră (${CONFIG.ZILE_VIZE} zile)`, 'v' + vz.map(x => x.v.row + x.v.exp).join()]);
+    if (leaves.length) msgs.push(['🏖 Concedii', `${cnt(leaves.length, 'șofer cu concediu', 'șoferi cu concediu')} în ${CONFIG.ZILE_CONCEDIU} zile`, 'c' + leaves.map(x => x.name + x.l.start).join()]);
+    msgs.forEach(m => { if (!sent.includes(m[2])) { sent.push(m[2]); notify(m[0], m[1]); } });
+    localStorage.setItem(key, JSON.stringify(sent));
+  }
+}
+async function notify(title, body) {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(title, { body, icon: 'icon-192.png', badge: 'icon-192.png', tag: title });
+  } catch (e) { try { new Notification(title, { body, icon: 'icon-192.png' }); } catch (_) {} }
+}
+async function askNotif() {
+  const p = await Notification.requestPermission();
+  if (p === 'granted') { toast('Notificări activate'); checkAlerts(); } else toast('Notificările au fost refuzate');
+}
+
+/* ================== RANDARE ================== */
+function setTab(t) {
+  tab = t; $('nCurse').classList.toggle('on', t === 'curse'); $('nVize').classList.toggle('on', t === 'vize'); $('nIst').classList.toggle('on', t === 'istoric'); $('fab').style.display = token && t !== 'istoric' ? 'block' : 'none';
+  q = ''; render();
+}
+function activeFilters() { return Object.entries(F[tab]).filter(([, v]) => v); }
+function match(item) {
+  const cols = tab === 'curse' ? COLS_CURSE : COLS_VIZE;
+  if (q && !cols.some(([k]) => plain(item[k]).includes(plain(q)))) return false;
+  return activeFilters().every(([k, v]) => plain(item[k]).includes(plain(v)));
+}
+function render() {
+  const app = $('app');
+  if (!token) {
+    app.innerHTML = `<div class="login"><h2>Bine ai venit</h2><p>Deschide Setări și introdu adresa bazei de date și parola.</p><button class="btn" onclick="signIn()">⚙ Setări</button></div>`;
+    return;
+  }
+  if (tab === 'istoric') {
+    app.innerHTML = `<div class="bar"><input id="qi" type="search" placeholder="Caută în istoric…" value="${esc(q)}" oninput="q=this.value;renderList()"></div><div id="list"></div>`;
+    renderList(); return;
+  }
+  const al = alerts(); const nF = activeFilters().length;
+  let h = `<div class="bar"><input id="qi" type="search" placeholder="Caută (camion, șofer, localitate…)" value="${esc(q)}" oninput="q=this.value;renderList()"><button class="btn sec" onclick="openFilters()">⚙ Filtre${nF ? ' (' + nF + ')' : ''}</button></div>`;
+  h += `<div class="chips"><span class="chip ${onlyAlerts ? 'on' : ''}" onclick="onlyAlerts=!onlyAlerts;render()">⚠ Doar alerte</span>` +
+    activeFilters().map(([k, v]) => { const n = (tab === 'curse' ? COLS_CURSE : COLS_VIZE).find(c => c[0] === k)[1]; return `<span class="chip on" onclick="F[tab]['${k}']='';render()">${esc(n.split(' (')[0])}: ${esc(v)} ✕</span>`; }).join('') + `</div>`;
+  h += `<div id="list"></div>`;
+  app.innerHTML = h; renderList();
+}
+function renderList() {
+  if (tab === 'istoric') {
+    const rows = (D.istoric || []).filter(r => !q || plain(Object.values(r).join(' ')).includes(plain(q)));
+    $('list').innerHTML = rows.map(r => `<div class="card"><div class="top"><div class="nr">👤 ${esc(r.user)}</div><div class="dt">${esc(r.time)}</div></div>
+      <span class="tag ${r.act === 'Adăugare' ? 'ok' : 'or'}">${esc(String(r.act).toUpperCase())}</span><span class="tag" style="background:var(--pri)">${esc(r.tab)} · rând ${esc(r.row)}</span>
+      <div class="row">📝 <b>${esc(r.dupa)}</b></div>${r.inainte ? `<div class="row">înainte: ${esc(r.inainte)}</div>` : ''}</div>`).join('') || '<div class="empty">Niciun istoric încă</div>';
+    return;
+  }
+  const al = alerts(); const inCurse = new Set(D.curse.flatMap(c => drivers(c.sofer).map(norm)).filter(Boolean));
+  let html = '';
+  if (tab === 'curse') {
+    const aMap = new Map(al.trucks.map(t => [t.c.row, t.n]));
+    let items = D.curse.filter(match);
+    if (onlyAlerts) items = items.filter(c => aMap.has(c.row));
+    items.sort((a, b) => {
+      const A = aMap.has(a.row), B = aMap.has(b.row); if (A !== B) return A ? -1 : 1;
+      const da = parseDate(a.data), db = parseDate(b.data);
+      return A ? aMap.get(a.row) - aMap.get(b.row) : (db || 0) - (da || 0);
+    });
+    html = items.map(c => {
+      const n = aMap.get(c.row);
+      const rem = (c.nr.split('/')[1] || '').trim(), note = (D.flota.notes || {})[rem];
+      const cd = parseDate(c.data), upc = cd && diffDays(cd) >= 0;
+      const lv = upc ? drivers(c.sofer).map(nm => { const l = leaveFor(nm); return l ? `<span class="tag or">🏖 ${esc(nm)}: ${esc(leaveTxt(l))}</span>` : ''; }).join('') : '';
+      return `<div class="card ${n !== undefined ? 'al' : ''}" onclick="openForm(${c.row})">
+        <div class="top"><div class="nr">${esc(c.nr)}</div><div class="dt">${esc(c.data)}</div></div>
+        ${n !== undefined ? `<span class="tag">DESCARCĂ ÎN ${CONFIG.ZILE_CURSE} ZILE</span><span class="tag">${zi(n)}</span>` : ''}
+        <div class="row">👤 <b>${esc(c.sofer)}</b></div>${lv}
+        ${note ? `<div class="row">⚠ Remorcă ${esc(rem)}: <b>${esc(note)}</b></div>` : ''}
+        <div class="row">📍 <b>${esc(c.loc)}</b>${c.tara ? ', ' + esc(c.tara) : ''}</div>
+        ${c.det ? `<div class="row">📝 ${esc(c.det)}</div>` : ''}${c.obs ? `<div class="row">💬 ${esc(c.obs)}</div>` : ''}</div>`;
+    }).join('');
+  } else {
+    const aMap = new Map(al.vize.map(x => [x.v.row, x]));
+    let items = D.vize.filter(match);
+    if (onlyAlerts) items = items.filter(v => aMap.has(v.row));
+    items.sort((a, b) => (parseDate(a.exp) || 9e15) - (parseDate(b.exp) || 9e15));
+    html = items.map(v => {
+      const x = aMap.get(v.row);
+      const cls = x ? (x.inCurse ? 'al' : 'or') : '';
+      return `<div class="card ${cls}" onclick="openForm(${v.row})">
+        <div class="top"><div class="nr">${esc(v.nume)}</div><div class="dt">${esc(v.exp)}</div></div>
+        <div class="row">📄 <b>${esc(v.doc)}</b></div>
+        ${x ? `<span class="tag ${x.inCurse ? '' : 'or'}">${exTxt(x.n).toUpperCase()}</span>${x.inCurse ? '<span class="tag">ȘOFER ÎN CURSE</span>' : ''}` : ''}</div>`;
+    }).join('');
+  }
+  $('list').innerHTML = html || '<div class="empty">Nimic de afișat</div>';
+}
+
+/* ================== FILTRE ================== */
+function openFilters() {
+  const cols = tab === 'curse' ? COLS_CURSE : COLS_VIZE;
+  $('sheet').innerHTML = `<h2>Filtre – ${tab === 'curse' ? 'Curse' : 'Vize medicale'}</h2>` +
+    cols.map(([k, n]) => `<label>${esc(n)}</label><input data-k="${k}" value="${esc(F[tab][k] || '')}" placeholder="conține…">`).join('') +
+    `<div class="acts"><button class="btn sec" onclick="F[tab]={};closeModal();render()">Șterge</button><button class="btn" onclick="applyFilters()">Aplică</button></div>`;
+  showModal();
+}
+function applyFilters() {
+  document.querySelectorAll('#sheet input[data-k]').forEach(i => F[tab][i.dataset.k] = i.value.trim());
+  closeModal(); render();
+}
+
+/* ================== ADĂUGARE / EDITARE ================== */
+const showModal = () => $('modal').style.display = 'flex';
+const closeModal = () => $('modal').style.display = 'none';
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+const opts = (list, cur) => { const l = cur && !list.includes(cur) ? [cur, ...list] : list; return `<option value="">— alege —</option>` + l.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join(''); };
+
+const optsR = (list, cur) => { const l = cur && !list.includes(cur) ? [cur, ...list] : list; const N = D.flota.notes || {}; return `<option value="">— alege —</option>` + l.map(x => `<option value="${esc(x)}" ${x === cur ? 'selected' : ''}>${esc(x)}${N[x] ? ' — ⚠ ' + esc(N[x]) : ''}</option>`).join(''); };
+function leaveHint() {
+  const h = $('f_hint'); if (!h) return;
+  const N = D.flota.notes || {}, msgs = [];
+  [$('f_sof').value, $('f_sof2').value].filter(Boolean).forEach(n => { const l = leaveFor(n); if (l) msgs.push(`🏖 ${esc(n)}: ${esc(leaveTxt(l))}`); });
+  const rr = $('f_rem').value; if (rr && N[rr]) msgs.push(`⚠ Remorcă ${esc(rr)}: ${esc(N[rr])}`);
+  h.innerHTML = msgs.join('<br>');
+}
+function remChange() {
+  leaveHint();
+  const box = $('f_swap'); if (!box) return;
+  const old = editing ? D.curse.find(x => x.row === editing) : null;
+  const oldRem = old ? (old.nr.split('/')[1] || '').trim() : '';
+  const now = $('f_rem').value;
+  if (old && oldRem && now && now !== oldRem) {
+    box.style.display = 'block';
+    box.innerHTML = `Remorca predată <b>${esc(oldRem)}</b> a descărcat: ${esc(old.data)} · ${esc(old.tara)} · ${esc(old.loc)}. Datele astea merg în istoric. Mai jos completează datele noii curse (data descărcării, țara, localitatea).`;
+    if (!swapCleared) { $('f_dat').value = ''; $('f_tar').value = ''; $('f_loc').value = ''; swapCleared = true; }
+  } else {
+    box.style.display = 'none';
+    if (swapCleared) { $('f_dat').value = roToIso(old.data); $('f_tar').value = old.tara; $('f_loc').value = old.loc; swapCleared = false; }
+  }
+}
+function openForm(row) {
+  editing = row || null; swapCleared = false;
+  if (tab === 'curse') {
+    const c = row ? D.curse.find(x => x.row === row) : { nr: '', data: '', tara: '', loc: '', det: '', obs: '', sofer: '' };
+    const [cam, rem] = c.nr.split('/').map(s => s.trim());
+    const [s1, s2] = drivers(c.sofer);
+    $('sheet').innerHTML = `<h2>${row ? 'Editează cursa' : 'Cursă nouă'}</h2>
+      <label>Camion</label><select id="f_cam">${opts(D.flota.c, cam)}</select>
+      <label>Remorcă</label><select id="f_rem" onchange="remChange()">${optsR(D.flota.r, rem)}</select>
+      <div id="f_swap" class="hint" style="display:none"></div>
+      <label>Localitatea predării/preluării remorcii (scrie manual – obligatoriu când schimbi remorca)</label><input id="f_loc2" placeholder="ex: Sibiu">
+      <label>Șofer 1</label><select id="f_sof" onchange="leaveHint()">${opts(D.flota.s, s1)}</select>
+      <label>Șofer 2 (opțional)</label><select id="f_sof2" onchange="leaveHint()">${opts(D.flota.s, s2)}</select>
+      <div id="f_hint" class="hint"></div>
+      <label>Data descărcării</label><input type="date" id="f_dat" value="${roToIso(c.data)}">
+      <label>Țara</label><input id="f_tar" value="${esc(c.tara)}">
+      <label>Localitatea</label><input id="f_loc" value="${esc(c.loc)}">
+      <label>Detalii</label><textarea id="f_det" rows="2">${esc(c.det)}</textarea>
+      <label>Observații</label><textarea id="f_obs" rows="2">${esc(c.obs)}</textarea>
+      <div class="acts"><button class="btn sec" onclick="closeModal()">Anulează</button><button class="btn" id="bSave" onclick="saveCursa()">Salvează</button></div>`;
+  } else {
+    const v = row ? D.vize.find(x => x.row === row) : { nume: '', doc: '', exp: '' };
+    $('sheet').innerHTML = `<h2>${row ? 'Editează viza' : 'Viză nouă'}</h2>
+      <label>Nume</label><input id="f_nume" list="dl" value="${esc(v.nume)}"><datalist id="dl">${D.flota.s.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
+      <label>Document</label><input id="f_doc" value="${esc(v.doc)}">
+      <label>Data expirare</label><input type="date" id="f_exp" value="${roToIso(v.exp)}">
+      <div class="acts"><button class="btn sec" onclick="closeModal()">Anulează</button><button class="btn" id="bSave" onclick="saveViza()">Salvează</button></div>`;
+  }
+  showModal();
+  if (tab === 'curse') leaveHint();
+}
+async function write(kind, row, values, loc) {
+  if (!cfg.name) throw new Error('Pune-ți numele în ⚙ Setări');
+  const r = await fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: cfg.key, user: cfg.name, action: 'write', kind, row, values, loc: loc || '' }) });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error);
+}
+async function saveCursa() {
+  const cam = $('f_cam').value, rem = $('f_rem').value, sof = $('f_sof').value, dat = $('f_dat').value;
+  if (!cam || !sof || !dat) { toast('Alege camionul, șoferul și data'); return; }
+  const sof2 = $('f_sof2').value, soferi = sof2 && sof2 !== sof ? `${sof}/${sof2}` : sof;
+  const nr = rem ? `${cam}/${rem}` : cam;
+  const old = editing ? D.curse.find(x => x.row === editing) : null;
+  const oldRem = old ? (old.nr.split('/')[1] || '').trim() : '';
+  const loc2 = $('f_loc2').value.trim();
+  if (rem !== oldRem && (rem || oldRem) && !loc2) { toast('Scrie localitatea unde se face predarea/preluarea remorcii'); return; }
+  if (old && oldRem && rem && rem !== oldRem && (!$('f_tar').value.trim() || !$('f_loc').value.trim())) { toast('Remorcă schimbată: completează data, țara și localitatea noii curse'); return; }
+  const id = old && old.id ? old.id : String(Math.max(0, ...D.curse.map(x => parseInt(x.id) || 0)) + 1);
+  $('bSave').disabled = true;
+  try {
+    await write('curse', editing, [id, nr, isoToRo(dat), $('f_tar').value.trim(), $('f_loc').value.trim(), $('f_det').value.trim(), $('f_obs').value.trim(), soferi], loc2);
+    closeModal(); toast('Salvat'); await loadAll();
+  } catch (e) { toast(e.message); $('bSave').disabled = false; }
+}
+async function saveViza() {
+  const n = $('f_nume').value.trim(), d = $('f_doc').value.trim(), e = $('f_exp').value;
+  if (!n || !d || !e) { toast('Completează toate câmpurile'); return; }
+  $('bSave').disabled = true;
+  try {
+    await write('vize', editing, [n, d, isoToRo(e)]);
+    closeModal(); toast('Salvat'); await loadAll();
+  } catch (er) { toast(er.message); $('bSave').disabled = false; }
+}
+
+/* ================== PORNIRE ================== */
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+(function boot() {
+  try { const s = JSON.parse(localStorage.getItem('gas') || 'null'); if (s && s.url && s.key) { cfg = s; setToken(true); } } catch (e) {}
+  render();
+  if (token) loadAll();
+  setInterval(() => { if (token && !document.hidden && $('modal').style.display !== 'flex' && document.activeElement?.id !== 'qi') loadAll(false); }, CONFIG.REFRESH_SEC * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && token) loadAll(false); });
+})();
+</script>
+</body>
+</html>

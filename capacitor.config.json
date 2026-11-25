@@ -1,0 +1,22 @@
+{
+  "appId": "ro.dispecerat.flota",
+  "appName": "Dispecerat Flotă",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "allowNavigation": [
+      "script.google.com",
+      "script.googleusercontent.com"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0f3d7a"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#0f3d7a",
+    "preferredContentMode": "mobile"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Dispecerat Flotă & Curse",
+  "description": "Aplicație operațională de dispecerat transport conectată la Google Apps Script pentru gestionarea curselor, flotei, remorcilor libere, vizelor medicale și concediilor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
