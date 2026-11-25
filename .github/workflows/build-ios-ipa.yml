@@ -1,0 +1,56 @@
+name: Construiește iOS (IPA nesemnat)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Descarcă codul
+        uses: actions/checkout@v4
+
+      - name: Configurează Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalează pachetele
+        run: npm install --legacy-peer-deps
+
+      - name: Construiește aplicația web
+        run: npm run build
+
+      - name: Pregătește proiectul iOS
+        run: |
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+
+      - name: Compilează aplicația iOS
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Împachetează IPA
+        run: |
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -r "$RUNNER_TEMP/Dispecerat-Flota-iOS-Unsigned.ipa" Payload
+
+      - name: Încarcă fișierul IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dispecerat-Flota-iOS-IPA
+          path: ${{ runner.temp }}/Dispecerat-Flota-iOS-Unsigned.ipa
+          if-no-files-found: error
