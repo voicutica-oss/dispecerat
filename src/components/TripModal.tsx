@@ -2,6 +2,7 @@ import { AlertCircle, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { LeaveRecord, TripRecord } from '../types/fleet';
 import {
+  computeFleetAutoFill,
   fmtRoDate,
   isFlotaSwapTag,
   isoToRoDate,
@@ -10,6 +11,7 @@ import {
   parteNr,
   plainRo,
   roToIsoDate,
+  SHEET1_DEFAULT_HEADERS,
   splitDrivers,
   todayRo,
 } from '../utils/roDates';
@@ -56,6 +58,13 @@ export function TripModal({
   const [localitate, setLocalitate] = useState('');
   const [detalii, setDetalii] = useState('');
   const [obs, setObs] = useState('');
+  const [telefon, setTelefon] = useState('');
+  const [rezerva, setRezerva] = useState('');
+  const [tipAuto, setTipAuto] = useState('');
+  const [anFabricatie, setAnFabricatie] = useState('');
+  const [perioadaEstimata, setPerioadaEstimata] = useState('');
+  const [garajDin, setGarajDin] = useState('');
+  const [camioaneOriginal, setCamioaneOriginal] = useState('');
   const [locSwap, setLocSwap] = useState('');
   const [autoFilledTrailer, setAutoFilledTrailer] = useState<string | null>(
     null
@@ -171,6 +180,10 @@ export function TripModal({
       const rawNr = trip.cells[1] || '';
       const { camion: c, remorca: r } = parteNr(rawNr);
       const [s1 = '', s2 = ''] = splitDrivers(trip.cells[7]);
+      const auto = computeFleetAutoFill(
+        { camion: c, remorca: r, soferi: trip.cells[7] },
+        flota
+      );
       setIdVal(trip.cells[0] || '');
       setCamion(c);
       setRemorca(r);
@@ -182,6 +195,13 @@ export function TripModal({
       setLocalitate(trip.cells[4] || '');
       setDetalii(trip.cells[5] || '');
       setObs(trip.cells[6] || '');
+      setTelefon(trip.cells[8] || auto.telefon);
+      setRezerva(trip.cells[9] || auto.rezerva);
+      setTipAuto(trip.cells[10] || auto.tipAuto);
+      setAnFabricatie(trip.cells[11] || auto.anFabricatie);
+      setPerioadaEstimata(trip.cells[12] || '');
+      setGarajDin(trip.cells[13] || '');
+      setCamioaneOriginal(trip.cells[14] || auto.camioaneOriginal);
     } else {
       const maxId = allTrips.reduce((max, t) => {
         const parsed = parseInt(t.cells[0], 10);
@@ -198,8 +218,15 @@ export function TripModal({
       setLocalitate('');
       setDetalii('');
       setObs('');
+      setTelefon('');
+      setRezerva('');
+      setTipAuto('');
+      setAnFabricatie('');
+      setPerioadaEstimata('');
+      setGarajDin('');
+      setCamioaneOriginal('');
     }
-  }, [open, trip, allTrips]);
+  }, [open, trip, allTrips, flota]);
 
   if (!open) return null;
 
@@ -215,11 +242,40 @@ export function TripModal({
     Boolean(trip && oldTrailer && remorca.trim() && !isOldSwap && !isNewSwap) &&
     remorca.trim().toUpperCase() !== oldTrailer.trim().toUpperCase();
 
+  const handleCamionChange = (nextCamion: string) => {
+    setCamion(nextCamion);
+    const auto = computeFleetAutoFill(
+      { camion: nextCamion, remorca, soferi: `${sofer1}, ${sofer2}` },
+      flota
+    );
+    if (!nextCamion.trim()) {
+      setAnFabricatie('');
+      setCamioaneOriginal('');
+    } else {
+      if (auto.anFabricatie) setAnFabricatie(auto.anFabricatie);
+      else if (!trip?.cells[11]) setAnFabricatie('');
+      if (auto.camioaneOriginal) setCamioaneOriginal(auto.camioaneOriginal);
+      else if (!trip?.cells[14]) setCamioaneOriginal('');
+    }
+  };
+
   const handleTrailerChange = (nextRem: string) => {
     setRemorca(nextRem);
     const trimmed = nextRem.trim();
     const key = normRemKey(trimmed);
     const isSameAsOld = Boolean(trip) && key === normRemKey(oldTrailer);
+
+    const auto = computeFleetAutoFill(
+      { camion, remorca: nextRem, soferi: `${sofer1}, ${sofer2}` },
+      flota
+    );
+    if (!trimmed || /^schimb/i.test(trimmed)) {
+      setTipAuto('');
+    } else if (auto.tipAuto) {
+      setTipAuto(auto.tipAuto);
+    } else if (!isSameAsOld) {
+      setTipAuto('');
+    }
 
     if (!trimmed || /^schimb/i.test(trimmed) || isSameAsOld) {
       if (autoFilledTrailer && trip) {
@@ -244,6 +300,25 @@ export function TripModal({
         setLocalitate(trip.cells[4] || '');
       }
       setAutoFilledTrailer(null);
+    }
+  };
+
+  const handleDriversChange = (nextS1: string, nextS2: string) => {
+    setSofer1(nextS1);
+    setSofer2(nextS2);
+    const combined = [nextS1.trim(), nextS2.trim()].filter(Boolean).join(', ');
+    if (!combined) {
+      setTelefon('');
+      setRezerva('');
+      return;
+    }
+    const auto = computeFleetAutoFill(
+      { camion, remorca, soferi: combined },
+      flota
+    );
+    if (auto.telefon || auto.rezerva) {
+      setTelefon(auto.telefon);
+      setRezerva(auto.rezerva);
     }
   };
 
@@ -321,6 +396,11 @@ export function TripModal({
       .filter((s, idx, arr) => Boolean(s) && arr.indexOf(s) === idx)
       .join(', ');
 
+    const autoFallback = computeFleetAutoFill(
+      { camion: camion.trim(), remorca: remorca.trim(), soferi },
+      flota
+    );
+
     const values = [
       idVal.trim(),
       nr,
@@ -330,6 +410,13 @@ export function TripModal({
       detalii.trim(),
       obs.trim(),
       soferi,
+      telefon.trim() || autoFallback.telefon,
+      rezerva.trim() || autoFallback.rezerva,
+      tipAuto.trim() || autoFallback.tipAuto,
+      anFabricatie.trim() || autoFallback.anFabricatie,
+      perioadaEstimata.trim(),
+      garajDin.trim(),
+      camioaneOriginal.trim() || autoFallback.camioaneOriginal,
     ];
 
     await onSave({
@@ -339,8 +426,10 @@ export function TripModal({
     });
   };
 
-  const labelFor = (idx: number, fallback: string) =>
-    headers[idx] && headers[idx].trim() ? headers[idx].trim() : fallback;
+  const labelFor = (idx: number, fallback?: string) =>
+    headers[idx] && headers[idx].trim()
+      ? headers[idx].trim()
+      : fallback || SHEET1_DEFAULT_HEADERS[idx] || `Col ${idx + 1}`;
 
   const displayError = localError || error;
   const isoPickerValue = roToIsoDate(dataText);
@@ -354,7 +443,7 @@ export function TripModal({
               {trip ? `Editează rândul ${trip.rowIndex}` : 'Cursă nouă'}
             </h2>
             <p className="text-xs text-slate-500">
-              Coloane compatibile 1:1 cu „sheet 1” (inclusiv curte, sofer, SCHIMB, echipaj dublu)
+              Coloane compatibile 1:1 cu „sheet 1” (A–O, cu auto-completare din Flotă)
             </p>
           </div>
           <button
@@ -397,7 +486,7 @@ export function TripModal({
                 type="text"
                 list="fleet-trucks-list"
                 value={camion}
-                onChange={(e) => setCamion(e.target.value)}
+                onChange={(e) => handleCamionChange(e.target.value)}
                 placeholder="ex. SB-01-TLN"
                 className="w-full px-3 py-2.5 font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
@@ -513,7 +602,7 @@ export function TripModal({
                 type="text"
                 list="fleet-drivers-list"
                 value={sofer1}
-                onChange={(e) => setSofer1(e.target.value)}
+                onChange={(e) => handleDriversChange(e.target.value, sofer2)}
                 placeholder="ex. PACURARIU MIHAIL-DANIEL"
                 className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
@@ -532,7 +621,7 @@ export function TripModal({
                 type="text"
                 list="fleet-drivers-list"
                 value={sofer2}
-                onChange={(e) => setSofer2(e.target.value)}
+                onChange={(e) => handleDriversChange(sofer1, e.target.value)}
                 placeholder="opțional"
                 className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
@@ -651,6 +740,110 @@ export function TripModal({
                 placeholder="ex. PLECAT CU SB26TTA, CO, SCHIMB ULEI"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-800">
+                Date flotă & detalii suplimentare (coloanele I–O)
+              </span>
+              <span className="text-[11px] text-slate-500">
+                I, J, K, L, O se completează automat din Flotă
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  I · {labelFor(8)}
+                </label>
+                <input
+                  type="text"
+                  value={telefon}
+                  onChange={(e) => setTelefon(e.target.value)}
+                  placeholder="auto din Flotă E"
+                  className="w-full px-3 py-2 bg-white font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  J · {labelFor(9)}
+                </label>
+                <input
+                  type="text"
+                  value={rezerva}
+                  onChange={(e) => setRezerva(e.target.value)}
+                  placeholder="auto din Flotă F"
+                  className="w-full px-3 py-2 bg-white font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  K · {labelFor(10)}
+                </label>
+                <input
+                  type="text"
+                  value={tipAuto}
+                  onChange={(e) => setTipAuto(e.target.value)}
+                  placeholder="auto din Flotă H (remorcă)"
+                  className="w-full px-3 py-2 bg-white font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  L · {labelFor(11)}
+                </label>
+                <input
+                  type="text"
+                  value={anFabricatie}
+                  onChange={(e) => setAnFabricatie(e.target.value)}
+                  placeholder="auto din Flotă G (camion)"
+                  className="w-full px-3 py-2 bg-white font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  M · {labelFor(12)}
+                </label>
+                <input
+                  type="text"
+                  value={perioadaEstimata}
+                  onChange={(e) => setPerioadaEstimata(e.target.value)}
+                  placeholder="ex. 5 zile"
+                  className="w-full px-3 py-2 bg-white text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  N · {labelFor(13)}
+                </label>
+                <input
+                  type="text"
+                  value={garajDin}
+                  onChange={(e) => setGarajDin(e.target.value)}
+                  placeholder="ex. Sibiu"
+                  className="w-full px-3 py-2 bg-white text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  O · {labelFor(14)}
+                </label>
+                <input
+                  type="text"
+                  value={camioaneOriginal}
+                  onChange={(e) => setCamioaneOriginal(e.target.value)}
+                  placeholder="auto din Flotă A/B (camion/remorcă titulară)"
+                  className="w-full px-3 py-2 bg-white font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
             </div>
           </div>
 

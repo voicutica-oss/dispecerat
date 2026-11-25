@@ -3,9 +3,27 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+let geminiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return null;
+  if (!geminiClient) {
+    geminiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return geminiClient;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +80,146 @@ async function startServer() {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  app.post('/api/maps/grounding', async (req, res) => {
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.status(503).json({
+        error:
+          'Cheia GEMINI_API_KEY nu este configurată pe server. Verificați Settings > Secrets.',
+      });
+      return;
+    }
+
+    const rawQuery = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
+    const rawDestination =
+      typeof req.body?.destination === 'string' ? req.body.destination.trim() : '';
+    const rawCountry =
+      typeof req.body?.country === 'string' ? req.body.country.trim() : '';
+    const latLng = req.body?.latLng;
+
+    const searchSubject = rawQuery || [rawCountry, rawDestination].filter(Boolean).join(' - ');
+    if (!searchSubject) {
+      res.status(400).json({ error: 'Introduceți o localitate sau o căutare pentru Google Maps.' });
+      return;
+    }
+
+    const promptParts = [
+      'Ești asistent de dispecerat transport marfă în Europa.',
+      `Oferă informații reale, scurte și utile din Google Maps pentru destinația sau interogarea: "${searchSubject}".`,
+      'Include unde este relevant: localizarea exactă / zona industrială, opțiuni de parcare camioane sau stații/servicii rutiere din apropiere și recomandări practice de acces.',
+      'Răspunde concis în limba română folosind Markdown.',
+    ];
+
+    const config: {
+      tools: Array<{ googleMaps: Record<string, never> }>;
+      toolConfig?: {
+        retrievalConfig: {
+          latLng: { latitude: number; longitude: number };
+        };
+      };
+    } = {
+      tools: [{ googleMaps: {} }],
+    };
+
+    if (
+      latLng &&
+      typeof latLng === 'object' &&
+      typeof latLng.latitude === 'number' &&
+      typeof latLng.longitude === 'number' &&
+      Number.isFinite(latLng.latitude) &&
+      Number.isFinite(latLng.longitude)
+    ) {
+      config.toolConfig = {
+        retrievalConfig: {
+          latLng: {
+            latitude: latLng.latitude,
+            longitude: latLng.longitude,
+          },
+        },
+      };
+    }
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: promptParts.join(' '),
+        config,
+      });
+
+      const rawChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const places: Array<{
+        title: string;
+        uri: string;
+        placeId?: string;
+        reviewSnippets: string[];
+      }> = [];
+      const seenUris = new Set<string>();
+
+      if (Array.isArray(rawChunks)) {
+        for (const chunk of rawChunks) {
+          const maps = (chunk as {
+            maps?: {
+              uri?: string;
+              title?: string;
+              placeId?: string;
+              placeAnswerSources?: {
+                reviewSnippets?: Array<string | { content?: string; text?: string }>;
+              };
+            };
+          })?.maps;
+          if (!maps?.uri) continue;
+          if (seenUris.has(maps.uri)) continue;
+          seenUris.add(maps.uri);
+
+          const rawSnippets = maps.placeAnswerSources?.reviewSnippets;
+          const reviewSnippets: string[] = [];
+          if (Array.isArray(rawSnippets)) {
+            for (const item of rawSnippets) {
+              if (typeof item === 'string' && item.trim()) {
+                reviewSnippets.push(item.trim());
+              } else if (item && typeof item === 'object') {
+                const text = String(item.content || item.text || '').trim();
+                if (text) reviewSnippets.push(text);
+              }
+            }
+          }
+
+          places.push({
+            title: String(maps.title || 'Locație Google Maps').trim(),
+            uri: maps.uri,
+            placeId: maps.placeId,
+            reviewSnippets,
+          });
+        }
+      }
+
+      res.json({
+        text: (response.text ?? '').trim(),
+        places,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const statusMatch = message.match(/\b(400|403|404|429)\b/);
+      const status = statusMatch ? Number(statusMatch[1]) : 502;
+
+      let friendlyError = `Eroare Google Maps Grounding: ${message}`;
+      if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(message)) {
+        friendlyError =
+          'Cota Gemini API pentru Google Maps Grounding a fost depășită (429). Verificați planul/cota sau selectați o cheie cu facturare activă în Settings > Secrets.';
+      } else if (status === 403 || status === 400 || /API_KEY|PERMISSION_DENIED/i.test(message)) {
+        friendlyError =
+          'Cheia Gemini API este invalidă sau nu are permisiune pentru acest serviciu. Verificați Settings > Secrets.';
+      } else if (status === 404 || /NOT_FOUND/i.test(message)) {
+        friendlyError =
+          'Serviciul sau modelul solicitat nu a fost găsit (404).';
+      }
+
+      res.status(status).json({
+        error: friendlyError,
+      });
+    }
   });
 
   app.post('/api/gas/sync', async (req, res) => {

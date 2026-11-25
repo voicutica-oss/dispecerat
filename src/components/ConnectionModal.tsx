@@ -17,7 +17,7 @@ function sheet_(n) {
 function vals_(n, cols) {
   const sh = sheet_(n);
   if (!sh) return [];
-  return sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), cols).getDisplayValues();
+  return sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), Math.max(sh.getLastColumn(), cols)).getDisplayValues();
 }
 function esteConcediu_(nume) {
   const n = String(nume).trim().toLowerCase();
@@ -62,6 +62,13 @@ function azi_() {
   return new Date(+z[0], +z[1] - 1, +z[2]);
 }
 const TIPURI_CONCEDIU = ['CO', 'CM', 'L', 'CFP'];
+function vizeRows_() {
+  const sh = sheet_(TAB_VIZE);
+  if (!sh) return [];
+  const r = Math.max(sh.getLastRow(), 1);
+  const c = Math.max(sh.getLastColumn(), 4);
+  return sh.getRange(1, 1, r, c).getDisplayValues();
+}
 function concediuRows_() {
   const sh = sheetConcediu_();
   if (!sh) return [];
@@ -176,8 +183,10 @@ function refreshRemorciLibere_() {
   let libSh = sheet_(TAB_LIBERE);
   if (!libSh) {
     libSh = ss.insertSheet('REMORCI LIBERE');
+    libSh.setFrozenRows(1);
+    libSh.setFrozenColumns(1);
   }
-  const fl = vals_(TAB_FLOTA, 4), cu = vals_(TAB_CURSE, 8), ir = vals_(TAB_IST_REM, 17);
+  const fl = vals_(TAB_FLOTA, 8), cu = vals_(TAB_CURSE, 15), ir = vals_(TAB_IST_REM, 17);
   const azi = azi_(), names = {}, ultima = {}, activa = {}, sofer = {};
   const normK = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const reg = (raw, prefer) => {
@@ -364,54 +373,256 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
     ]);
   }
 }
+function normKey_(s) {
+  return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+function splitDrivers_(s) {
+  return String(s || '').split(/[,\\/\\r\\n]+/).map(function(x) { return x.trim(); }).filter(Boolean);
+}
+function flotaLookup_() {
+  const fl = vals_(TAB_FLOTA, 8);
+  const byCamion = {}, byRemorca = {}, bySofer = {};
+  for (let i = 1; i < fl.length; i++) {
+    const r = fl[i] || [];
+    const a = String(r[0] || '').trim();
+    const b = String(r[1] || '').trim();
+    const c = String(r[2] || '').trim();
+    const e = String(r[4] || '').trim();
+    const f = String(r[5] || '').trim();
+    const g = String(r[6] || '').trim();
+    const h = String(r[7] || '').trim();
+    const kCam = normKey_(a);
+    const kRem = normKey_(b);
+    const kSof = norm_(c);
+    if (kCam) {
+      if (!byCamion[kCam]) byCamion[kCam] = { a: a, b: b, g: g, h: h };
+      else {
+        if (!byCamion[kCam].b && b) byCamion[kCam].b = b;
+        if (!byCamion[kCam].g && g) byCamion[kCam].g = g;
+        if (!byCamion[kCam].h && h) byCamion[kCam].h = h;
+      }
+    }
+    if (kRem) {
+      if (!byRemorca[kRem]) byRemorca[kRem] = { a: a, b: b, g: g, h: h };
+      else {
+        if (!byRemorca[kRem].h && h) byRemorca[kRem].h = h;
+      }
+    }
+    if (kSof) {
+      if (!bySofer[kSof]) bySofer[kSof] = { e: e, f: f };
+      else {
+        if (!bySofer[kSof].e && e) bySofer[kSof].e = e;
+        if (!bySofer[kSof].f && f) bySofer[kSof].f = f;
+      }
+    }
+  }
+  return { byCamion: byCamion, byRemorca: byRemorca, bySofer: bySofer };
+}
+function computeCurseAutoValues_(rowArr, maps) {
+  const m = maps || flotaLookup_();
+  const v = Array.from({ length: 15 }, function(_, i) { return String((rowArr && rowArr[i]) || ''); });
+  const parts = String(v[1] || '').split('/');
+  const cam = (parts[0] || '').trim();
+  const remRaw = (parts[1] || '').trim();
+  const rem = (!remRaw || /^schimb/i.test(remRaw)) ? '' : remRaw;
+
+  const camInfo = normKey_(cam) ? m.byCamion[normKey_(cam)] : null;
+  const remInfo = normKey_(rem) ? m.byRemorca[normKey_(rem)] : null;
+
+  const tels = [], rezs = [];
+  const drivers = splitDrivers_(v[7]);
+  for (let d = 0; d < drivers.length; d++) {
+    const info = m.bySofer[norm_(drivers[d])];
+    if (!info) continue;
+    if (info.e && tels.indexOf(info.e) < 0) tels.push(info.e);
+    if (info.f && rezs.indexOf(info.f) < 0) rezs.push(info.f);
+  }
+
+  return {
+    telefon: tels.join(' / '),
+    rezerva: rezs.join(' / '),
+    tipAuto: remInfo ? remInfo.h : '',
+    anFabricatie: camInfo ? camInfo.g : '',
+    camioaneOriginal: camInfo ? (camInfo.b ? (camInfo.a + '/' + camInfo.b) : camInfo.a) : '',
+    hasDriver: drivers.length > 0,
+    hasCam: Boolean(cam),
+    hasRem: Boolean(rem)
+  };
+}
+function applyCurseAutoFillRow_(sh, row, colChanged, maps) {
+  const v = sh.getRange(row, 1, 1, 15).getDisplayValues()[0];
+  const m = maps || flotaLookup_();
+  const auto = computeCurseAutoValues_(v, m);
+  if (!colChanged || colChanged === 2) {
+    sh.getRange(row, 11).setValue(auto.hasRem ? auto.tipAuto : '');
+    sh.getRange(row, 12).setValue(auto.hasCam ? auto.anFabricatie : '');
+    sh.getRange(row, 15).setValue(auto.hasCam ? auto.camioaneOriginal : '');
+  }
+  if (!colChanged || colChanged === 8) {
+    sh.getRange(row, 9, 1, 2).setNumberFormat('@');
+    sh.getRange(row, 9).setValue(auto.hasDriver ? auto.telefon : '');
+    sh.getRange(row, 10).setValue(auto.hasDriver ? auto.rezerva : '');
+  } else if (colChanged === 9) {
+    const kTyped = norm_(v[8]);
+    const sofInfo = kTyped ? m.bySofer[kTyped] : null;
+    if (sofInfo) {
+      sh.getRange(row, 9, 1, 2).setNumberFormat('@');
+      sh.getRange(row, 9).setValue(sofInfo.e || '');
+      sh.getRange(row, 10).setValue(sofInfo.f || '');
+    }
+  }
+}
+function syncSheet1AutoFill_() {
+  const sh = sheet_(TAB_CURSE);
+  if (!sh) return;
+  if (sh.getMaxColumns() < 15) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), 15 - sh.getMaxColumns());
+  }
+  const defHeaders = ['TELEFON', 'REZERVA', 'TIP AUTO', 'AN FABRICATIE', 'PERIOADA ESTIMATA', 'GARAJ DIN', 'CAMIOANE original'];
+  const curHdr = sh.getRange(1, 9, 1, 7).getDisplayValues()[0];
+  let hdrChanged = false;
+  for (let h = 0; h < 7; h++) {
+    if (!String(curHdr[h] || '').trim()) {
+      curHdr[h] = defHeaders[h];
+      hdrChanged = true;
+    }
+  }
+  if (hdrChanged) {
+    sh.getRange(1, 9, 1, 7).setValues([curHdr]);
+  }
+  if (sh.getLastRow() < 2) return;
+  const maps = flotaLookup_();
+  const numRows = sh.getLastRow() - 1;
+  const rows = sh.getRange(2, 1, numRows, 15).getDisplayValues();
+  const curIL = [], nextIL = [], curO = [], nextO = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const rowIL = [String(r[8] || ''), String(r[9] || ''), String(r[10] || ''), String(r[11] || '')];
+    const rowO = [String(r[14] || '')];
+    curIL.push(rowIL);
+    curO.push(rowO);
+    if (r.every(function(c) { return !String(c || '').trim(); })) {
+      nextIL.push(rowIL.slice());
+      nextO.push(rowO.slice());
+      continue;
+    }
+    const auto = computeCurseAutoValues_(r, maps);
+    nextIL.push([
+      auto.telefon || rowIL[0],
+      auto.rezerva || rowIL[1],
+      auto.tipAuto || rowIL[2],
+      auto.anFabricatie || rowIL[3]
+    ]);
+    nextO.push([auto.camioaneOriginal || rowO[0]]);
+  }
+  let wrote = false;
+  if (JSON.stringify(curIL) !== JSON.stringify(nextIL)) {
+    sh.getRange(2, 9, numRows, 2).setNumberFormat('@');
+    sh.getRange(2, 9, numRows, 4).setValues(nextIL);
+    wrote = true;
+  }
+  if (JSON.stringify(curO) !== JSON.stringify(nextO)) {
+    sh.getRange(2, 15, numRows, 1).setValues(nextO);
+    wrote = true;
+  }
+  if (wrote || hdrChanged) {
+    SpreadsheetApp.flush();
+  }
+}
+function actualizeazaSheet1DinFlota() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheets().forEach(function(s) {
+    if (s.getFrozenColumns() < 1) s.setFrozenColumns(1);
+  });
+  syncSheet1AutoFill_();
+  refreshRemorciLibere_();
+}
+function onOpen() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('Dispecerat')
+      .addItem('Completează I-O din Flotă (sheet 1)', 'actualizeazaSheet1DinFlota')
+      .addItem('Recalculează totaluri concediu', 'actualizeazaTotaluriConcediu')
+      .addToUi();
+  } catch (err) {
+    // ignore in non-UI contexts
+  }
+}
 function onEdit(e) {
   if (!e || !e.range) return;
   const sh = e.range.getSheet();
   const name = sh.getName();
   const low = name.trim().toLowerCase();
   if (low === TAB_ISTORIC || low === TAB_IST_REM || low === TAB_LIBERE || low === TAB_TOTAL) return;
-  const row = e.range.getRow();
-  if (row <= 1) return;
-  const col = e.range.getColumn();
-  const oldVal = e.oldValue !== undefined ? String(e.oldValue) : '';
-  const newVal = e.range.getDisplayValue();
-  if (oldVal !== newVal) {
-    const header = String(sh.getRange(1, col).getDisplayValue() || ('Col ' + col)).trim();
-    const rowLabel = String(sh.getRange(row, 1).getDisplayValue() || '').trim();
-    const prefix = rowLabel && col > 1 ? rowLabel + ' · ' : '';
-    log_('Google Sheet', name, row, 'Editare Excel', prefix + header + ': ' + (oldVal || 'gol'), prefix + header + ': ' + (newVal || 'gol'));
+  const startRow = e.range.getRow();
+  const numRows = e.range.getNumRows();
+  const startCol = e.range.getColumn();
+  const numCols = e.range.getNumColumns();
+  const endRow = startRow + numRows - 1;
+  const endCol = startCol + numCols - 1;
+  if (endRow <= 1) return;
+
+  if (numRows === 1 && numCols === 1 && startRow > 1) {
+    const oldVal = e.oldValue !== undefined ? String(e.oldValue) : '';
+    const newVal = e.range.getDisplayValue();
+    if (oldVal !== newVal) {
+      const header = String(sh.getRange(1, startCol).getDisplayValue() || ('Col ' + startCol)).trim();
+      const rowLabel = String(sh.getRange(startRow, 1).getDisplayValue() || '').trim();
+      const prefix = rowLabel && startCol > 1 ? rowLabel + ' · ' : '';
+      log_('Google Sheet', name, startRow, 'Editare Excel', prefix + header + ': ' + (oldVal || 'gol'), prefix + header + ': ' + (newVal || 'gol'));
+    }
+    if (low === TAB_CURSE && startCol === 2 && oldVal !== newVal) {
+      const rowVals = sh.getRange(startRow, 1, 1, 15).getDisplayValues()[0];
+      const camNew = (newVal.split('/')[0] || '').trim() || (oldVal.split('/')[0] || '').trim();
+      const oldRem = (oldVal.split('/')[1] || '').trim();
+      const newRem = (newVal.split('/')[1] || '').trim();
+      logIstoricRemorci_(
+        camNew,
+        oldRem,
+        newRem,
+        '',
+        rowVals[2],
+        rowVals[3],
+        rowVals[4],
+        rowVals[7],
+        rowVals[2],
+        rowVals[3],
+        rowVals[4],
+        rowVals[7]
+      );
+    }
   }
-  if (low === TAB_CURSE && col === 2 && oldVal !== newVal) {
-    const rowVals = sh.getRange(row, 1, 1, 8).getDisplayValues()[0];
-    const camNew = (newVal.split('/')[0] || '').trim() || (oldVal.split('/')[0] || '').trim();
-    const oldRem = (oldVal.split('/')[1] || '').trim();
-    const newRem = (newVal.split('/')[1] || '').trim();
-    logIstoricRemorci_(
-      camNew,
-      oldRem,
-      newRem,
-      '',
-      rowVals[2],
-      rowVals[3],
-      rowVals[4],
-      rowVals[7],
-      rowVals[2],
-      rowVals[3],
-      rowVals[4],
-      rowVals[7]
-    );
+
+  if (low === TAB_CURSE) {
+    const touchesB = startCol <= 2 && endCol >= 2;
+    const touchesH = startCol <= 8 && endCol >= 8;
+    const touchesI = startCol <= 9 && endCol >= 9;
+    if (touchesB || touchesH || touchesI) {
+      const maps = flotaLookup_();
+      const fromR = Math.max(2, startRow);
+      for (let r = fromR; r <= endRow; r++) {
+        if (touchesB) applyCurseAutoFillRow_(sh, r, 2, maps);
+        if (touchesH) applyCurseAutoFillRow_(sh, r, 8, maps);
+        else if (touchesI && numRows === 1 && numCols === 1) applyCurseAutoFillRow_(sh, r, 9, maps);
+      }
+    }
   }
-  if (esteConcediu_(name)) recalcConcediuRow_(sh, row);
+  if (esteConcediu_(name)) {
+    const fromR = Math.max(2, startRow);
+    for (let r = fromR; r <= endRow; r++) recalcConcediuRow_(sh, r);
+  }
+  if (low === TAB_FLOTA) syncSheet1AutoFill_();
   if (low === TAB_CURSE || low === TAB_FLOTA) refreshRemorciLibere_();
 }
 function doGet(e) {
   if (!e || (e.parameter.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
+  syncSheet1AutoFill_();
   refreshRemorciLibere_();
   return out_({
-    scriptVersion: '2.6',
-    curse: vals_(TAB_CURSE, 8),
-    vize: vals_(TAB_VIZE, 4),
-    flota: vals_(TAB_FLOTA, 4),
+    scriptVersion: '2.9',
+    curse: vals_(TAB_CURSE, 15),
+    vize: vizeRows_(),
+    flota: vals_(TAB_FLOTA, 8),
     concediu: concediuRows_(),
     istoric: istoric_(),
     istoricRemorci: vals_(TAB_IST_REM, 17)
@@ -428,15 +639,22 @@ function doPost(e) {
     const sh = sheet_(TAB_CURSE);
     if (!sh) return out_({ error: 'Foaia sheet 1 lipsește' });
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
-    const oldRow = b.row ? sh.getRange(row, 1, 1, 8).getDisplayValues()[0] : [];
+    const oldRow = b.row ? sh.getRange(row, 1, 1, 15).getDisplayValues()[0] : [];
     const before = oldRow.length ? oldRow.join(' | ') : '';
-    const v8 = Array.from({ length: 8 }, (_, i) => String(vals[i] || ''));
+    const v15 = Array.from({ length: 15 }, (_, i) => String(vals[i] || ''));
+    const auto = computeCurseAutoValues_(v15);
+    if (!v15[8]) v15[8] = auto.telefon;
+    if (!v15[9]) v15[9] = auto.rezerva;
+    if (!v15[10]) v15[10] = auto.tipAuto;
+    if (!v15[11]) v15[11] = auto.anFabricatie;
+    if (!v15[14]) v15[14] = auto.camioaneOriginal;
     const oldNr = String(oldRow[1] || '');
     const oldRem = (oldNr.split('/')[1] || '').trim();
-    const newRem = (String(v8[1] || '').split('/')[1] || '').trim();
-    const camNew = (String(v8[1] || '').split('/')[0] || '').trim() || (oldNr.split('/')[0] || '').trim();
-    sh.getRange(row, 1, 1, 8).setValues([v8]);
-    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v8.join(' | '));
+    const newRem = (String(v15[1] || '').split('/')[1] || '').trim();
+    const camNew = (String(v15[1] || '').split('/')[0] || '').trim() || (oldNr.split('/')[0] || '').trim();
+    sh.getRange(row, 9, 1, 2).setNumberFormat('@');
+    sh.getRange(row, 1, 1, 15).setValues([v15]);
+    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v15.join(' | '));
     logIstoricRemorci_(
       camNew,
       oldRem,
@@ -446,10 +664,10 @@ function doPost(e) {
       oldRow[3] || '',
       oldRow[4] || '',
       oldRow[7] || '',
-      v8[2] || '',
-      v8[3] || '',
-      v8[4] || '',
-      v8[7] || ''
+      v15[2] || '',
+      v15[3] || '',
+      v15[4] || '',
+      v15[7] || ''
     );
     refreshRemorciLibere_();
     return out_({ ok: true, row });
@@ -640,8 +858,8 @@ export function ConnectionModal({
                 <div className="flex items-start gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-700" />
                   <span>
-                    URL-ul actual răspunde cu o versiune mai veche a scriptului (fără sincronizarea completă v2.6 pentru Remorci libere fără dată/țară/localitate, Concedii și Istoric remorci A–Q).
-                    În Apps Script alege <strong>Implementare → Gestionați implementările → Versiune nouă</strong> sau lipește aici noul URL <code className="font-mono">/exec</code>.
+                    URL-ul actual răspunde cu o versiune mai veche a scriptului (fără sincronizarea automată v2.9 în Google Sheet pentru coloanele I, J, K, L, O și salvarea completă A–O).
+                    În Apps Script alege <strong>Implementare → Gestionați implementările → Editați (creion) → Versiune nouă → Implementează</strong> sau lipește aici noul URL <code className="font-mono">/exec</code>.
                   </span>
                 </div>
                 <button
@@ -657,7 +875,7 @@ export function ConnectionModal({
             {config.mode === 'live' && !error && !scriptOutdated && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2.5 text-xs text-emerald-800">
                 <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>Conectat la Google Sheets Live (versiunea 2.6 bidirecțională).</span>
+                <span>Conectat la Google Sheets Live (versiunea 2.9 bidirecțională).</span>
               </div>
             )}
 

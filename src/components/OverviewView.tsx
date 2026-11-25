@@ -1,5 +1,5 @@
-import { ArrowRight, Bell } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowRight, Bell, ChevronDown, ChevronUp } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type {
   FreeTrailer,
   LeaveRecord,
@@ -13,6 +13,9 @@ import {
   normRo,
   splitDrivers,
 } from '../utils/roDates';
+import { CountryFlag } from './CountryFlag';
+import { SyncedScrollTable } from './SyncedScrollTable';
+import { TripsDistributionChart } from './TripsDistributionChart';
 
 interface OverviewViewProps {
   trips: TripRecord[];
@@ -20,6 +23,8 @@ interface OverviewViewProps {
   visas: VisaRecord[];
   leaves: LeaveRecord[];
   history: string[][];
+  flota?: string[][];
+  istoricRemorci?: string[][];
   onNavigate: (tab: NavTab) => void;
   onEditTrip: (trip: TripRecord) => void;
   onEditVisa: (visa: VisaRecord) => void;
@@ -27,27 +32,53 @@ interface OverviewViewProps {
   notifPermission: NotificationPermission | 'unsupported';
 }
 
+const ALERTS_HIDDEN_KEY = 'dispecerat_alerts_hidden_v1';
+
 export function OverviewView({
   trips,
   freeTrailers,
   visas,
   leaves,
   history,
+  flota = [],
+  istoricRemorci = [],
   onNavigate,
   onEditTrip,
   onEditVisa,
   onEnableNotifications,
   notifPermission,
 }: OverviewViewProps) {
-  const [expandedAlert, setExpandedAlert] = useState<'t' | 'v' | 'c' | null>(
+  const [alertsHidden, setAlertsHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(ALERTS_HIDDEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [expandedAlert, setExpandedAlert] = useState<'v' | 'c' | null>(null);
+  const [selectedAlertCountry, setSelectedAlertCountry] = useState<string | null>(
     null
   );
 
-  const activeTrips = trips.filter((t) => t.isActive);
+  const toggleAlertsHidden = () => {
+    setAlertsHidden((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(ALERTS_HIDDEN_KEY, next ? '1' : '0');
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
-  // Urgent unloadings: 0..2 days (matches ZILE_CURSE = 2)
+  const tripsWithTractor = trips.filter((t) => Boolean(t.camion.trim()));
+  const activeTrips = tripsWithTractor.filter((t) => t.isActive);
+
+  // Urgent unloadings: 0..2 days (only active trips with both tara and localitatea)
   const urgentUnloadings = trips
     .map((t) => {
+      if (!t.isActive) return null;
       const days = t.dataDescDate ? diffDaysFromToday(t.dataDescDate) : null;
       return days !== null && days >= 0 && days <= 2 ? { trip: t, days } : null;
     })
@@ -139,6 +170,28 @@ export function OverviewView({
   const dayLabel = (n: number) =>
     n === 0 ? 'AZI' : n === 1 ? 'MÂINE' : n === 2 ? 'POIMÂINE' : `în ${n} zile`;
 
+  const urgentUnloadingsByCountry = useMemo(() => {
+    const map = new Map<string, Array<{ trip: TripRecord; days: number }>>();
+    for (const item of urgentUnloadings) {
+      const country =
+        String(item.trip.tara || '').trim().toUpperCase() || 'Fără țară';
+      const arr = map.get(country) || [];
+      arr.push(item);
+      map.set(country, arr);
+    }
+    return Array.from(map.entries())
+      .map(([country, items]) => ({ country, items }))
+      .sort((a, b) => b.items.length - a.items.length || a.country.localeCompare(b.country));
+  }, [urgentUnloadings]);
+
+  const selectedAlertCountryItems = useMemo(() => {
+    if (!selectedAlertCountry) return [];
+    return (
+      urgentUnloadingsByCountry.find((c) => c.country === selectedAlertCountry)
+        ?.items || []
+    );
+  }, [urgentUnloadingsByCountry, selectedAlertCountry]);
+
   const hasAlerts =
     urgentUnloadings.length > 0 ||
     urgentVisas7.some((x) => x.inTrips) ||
@@ -155,124 +208,180 @@ export function OverviewView({
             <h2 className="font-display text-sm font-semibold text-red-900">
               Alerte operative imediate
             </h2>
-            {notifPermission === 'default' && (
+            <div className="flex items-center gap-2">
+              {notifPermission === 'default' && (
+                <button
+                  type="button"
+                  onClick={onEnableNotifications}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-700 rounded-lg hover:bg-red-800 transition-colors whitespace-nowrap"
+                >
+                  <Bell className="h-3.5 w-3.5" />
+                  <span>Activează notificările</span>
+                </button>
+              )}
               <button
                 type="button"
-                onClick={onEnableNotifications}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-700 rounded-lg hover:bg-red-800 transition-colors whitespace-nowrap"
+                onClick={toggleAlertsHidden}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-900 bg-white/80 border border-red-200 rounded-lg hover:bg-white transition-colors whitespace-nowrap"
               >
-                <Bell className="h-3.5 w-3.5" />
-                <span>Activează notificările</span>
+                {alertsHidden ? (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                    <span>Arată</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    <span>Ascunde</span>
+                  </>
+                )}
               </button>
-            )}
+            </div>
           </div>
 
-          <div className="space-y-1.5 text-xs text-red-900">
-            {urgentUnloadings.length > 0 && (
-              <div>
-                <span className="font-semibold">
-                  {urgentUnloadings.length}{' '}
-                  {urgentUnloadings.length === 1
-                    ? 'camion descarcă'
-                    : 'camioane descarcă'}{' '}
-                  în următoarele 2 zile
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedAlert(expandedAlert === 't' ? null : 't')
-                  }
-                  className="ml-2 underline font-medium text-red-800"
-                >
-                  {expandedAlert === 't' ? 'Ascunde' : 'Arată care'}
-                </button>
-                {expandedAlert === 't' && (
-                  <div className="mt-1.5 pl-3 space-y-1 text-red-800">
-                    {urgentUnloadings.map(({ trip, days }) => (
-                      <div key={trip.rowIndex}>
-                        <strong>{trip.camion || trip.cells[1]}</strong> ·{' '}
-                        {trip.sofer || 'Fără șofer'} · {trip.localitate || '—'} ·{' '}
-                        <strong>{dayLabel(days)}</strong>
-                      </div>
-                    ))}
+          {!alertsHidden && (
+            <div className="space-y-2 text-xs text-red-900">
+              {urgentUnloadings.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">
+                      {urgentUnloadings.length}{' '}
+                      {urgentUnloadings.length === 1
+                        ? 'camion descarcă'
+                        : 'camioane descarcă'}{' '}
+                      în următoarele 2 zile:
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {urgentUnloadingsByCountry.map(({ country, items }) => {
+                        const active = selectedAlertCountry === country;
+                        return (
+                          <button
+                            key={country}
+                            type="button"
+                            onClick={() =>
+                              setSelectedAlertCountry((prev) =>
+                                prev === country ? null : country
+                              )
+                            }
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-mono text-[11px] font-semibold border transition-colors tabular-nums ${
+                              active
+                                ? 'bg-red-700 text-white border-red-700'
+                                : 'bg-white text-red-900 border-red-200 hover:bg-red-100'
+                            }`}
+                          >
+                            <CountryFlag code={country} className="w-3.5 h-2.5" />
+                            <span>
+                              {country} {items.length}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
 
-            {urgentVisas7.filter((x) => x.inTrips).length > 0 && (
-              <div>
-                <span className="font-semibold">
-                  {urgentVisas7.filter((x) => x.inTrips).length} documente de
-                  șoferi în curse expiră în ≤ 7 zile
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedAlert(expandedAlert === 'v' ? null : 'v')
-                  }
-                  className="ml-2 underline font-medium text-red-800"
-                >
-                  {expandedAlert === 'v' ? 'Ascunde' : 'Arată care'}
-                </button>
-                {expandedAlert === 'v' && (
-                  <div className="mt-1.5 pl-3 space-y-1 text-red-800">
-                    {urgentVisas7
-                      .filter((x) => x.inTrips)
-                      .map(({ visa }) => (
-                        <div key={visa.rowIndex}>
-                          <strong>{visa.cells[1]}</strong> · {visa.cells[2]} ·{' '}
-                          <strong>
-                            {(visa.daysLeft ?? 0) < 0
-                              ? `EXPIRAT de ${Math.abs(visa.daysLeft ?? 0)} zile`
-                              : visa.daysLeft === 0
-                                ? 'expiră AZI'
-                                : `expiră în ${visa.daysLeft} zile`}
-                          </strong>
+                  {selectedAlertCountry && selectedAlertCountryItems.length > 0 && (
+                    <div className="mt-1.5 pl-3 border-l-2 border-red-300 space-y-1 text-red-800">
+                      <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-red-900">
+                        <span className="inline-flex items-center gap-1.5">
+                          <CountryFlag code={selectedAlertCountry} className="w-3.5 h-2.5" />
+                          <span>
+                            Detalii {selectedAlertCountry} ({selectedAlertCountryItems.length})
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAlertCountry(null)}
+                          className="underline font-medium text-red-800"
+                        >
+                          Ascunde
+                        </button>
+                      </div>
+                      {selectedAlertCountryItems.map(({ trip, days }) => (
+                        <div key={trip.rowIndex}>
+                          <strong>{trip.camion || trip.cells[1]}</strong> ·{' '}
+                          {trip.sofer || 'Fără șofer'} · {trip.localitate || '—'} ·{' '}
+                          <strong>{dayLabel(days)}</strong>
                         </div>
                       ))}
-                  </div>
-                )}
-              </div>
-            )}
+                    </div>
+                  )}
+                </div>
+              )}
 
-            {activeOrUpcomingLeaves.length > 0 && (
-              <div>
-                <span className="font-semibold">
-                  {activeOrUpcomingLeaves.length}{' '}
-                  {activeOrUpcomingLeaves.length === 1
-                    ? 'șofer cu concediu'
-                    : 'șoferi cu concediu'}{' '}
-                  în următoarele 14 zile
-                  {leaveConflictsCount > 0
-                    ? ` (${leaveConflictsCount} cu conflict cursă activă)`
-                    : ''}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedAlert(expandedAlert === 'c' ? null : 'c')
-                  }
-                  className="ml-2 underline font-medium text-red-800"
-                >
-                  {expandedAlert === 'c' ? 'Ascunde' : 'Arată care'}
-                </button>
-                {expandedAlert === 'c' && (
-                  <div className="mt-1.5 pl-3 space-y-1 text-red-800">
-                    {activeOrUpcomingLeaves.map(({ leave: l, status }, idx) => (
-                      <div key={`${l.nume}-${idx}`}>
-                        <strong>{l.nume}</strong> · {l.type} ·{' '}
-                        {l.startStr === l.endStr
-                          ? l.startStr
-                          : `${l.startStr} – ${l.endStr}`}{' '}
-                        · <strong>{status.label}</strong>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+              {urgentVisas7.filter((x) => x.inTrips).length > 0 && (
+                <div>
+                  <span className="font-semibold">
+                    {urgentVisas7.filter((x) => x.inTrips).length} documente de
+                    șoferi în curse expiră în ≤ 7 zile
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedAlert(expandedAlert === 'v' ? null : 'v')
+                    }
+                    className="ml-2 underline font-medium text-red-800"
+                  >
+                    {expandedAlert === 'v' ? 'Ascunde' : 'Arată care'}
+                  </button>
+                  {expandedAlert === 'v' && (
+                    <div className="mt-1.5 pl-3 space-y-1 text-red-800">
+                      {urgentVisas7
+                        .filter((x) => x.inTrips)
+                        .map(({ visa }) => (
+                          <div key={visa.rowIndex}>
+                            <strong>{visa.cells[1]}</strong> · {visa.cells[2]} ·{' '}
+                            <strong>
+                              {(visa.daysLeft ?? 0) < 0
+                                ? `EXPIRAT de ${Math.abs(visa.daysLeft ?? 0)} zile`
+                                : visa.daysLeft === 0
+                                  ? 'expiră AZI'
+                                  : `expiră în ${visa.daysLeft} zile`}
+                            </strong>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeOrUpcomingLeaves.length > 0 && (
+                <div>
+                  <span className="font-semibold">
+                    {activeOrUpcomingLeaves.length}{' '}
+                    {activeOrUpcomingLeaves.length === 1
+                      ? 'șofer cu concediu'
+                      : 'șoferi cu concediu'}{' '}
+                    în următoarele 14 zile
+                    {leaveConflictsCount > 0
+                      ? ` (${leaveConflictsCount} cu conflict cursă activă)`
+                      : ''}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedAlert(expandedAlert === 'c' ? null : 'c')
+                    }
+                    className="ml-2 underline font-medium text-red-800"
+                  >
+                    {expandedAlert === 'c' ? 'Ascunde' : 'Arată care'}
+                  </button>
+                  {expandedAlert === 'c' && (
+                    <div className="mt-1.5 pl-3 space-y-1 text-red-800">
+                      {activeOrUpcomingLeaves.map(({ leave: l, status }, idx) => (
+                        <div key={`${l.nume}-${idx}`}>
+                          <strong>{l.nume}</strong> · {l.type} ·{' '}
+                          {l.startStr === l.endStr
+                            ? l.startStr
+                            : `${l.startStr} – ${l.endStr}`}{' '}
+                          · <strong>{status.label}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </section>
       )}
 
@@ -291,9 +400,9 @@ export function OverviewView({
             {activeTrips.length}
           </div>
           <div className="mt-1 text-xs text-slate-500 tabular-nums">
-            din {trips.length} rânduri ·{' '}
+            din {tripsWithTractor.length} camioane ·{' '}
             {
-              trips.filter(
+              tripsWithTractor.filter(
                 (t) => t.statusType === 'yard' || t.statusType === 'driver_wait'
               ).length
             }{' '}
@@ -366,6 +475,12 @@ export function OverviewView({
         </button>
       </section>
 
+      <TripsDistributionChart
+        trips={trips}
+        flota={flota}
+        istoricRemorci={istoricRemorci}
+      />
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <section className="xl:col-span-7 bg-white border border-slate-200 rounded-lg overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
@@ -374,7 +489,7 @@ export function OverviewView({
                 Curse active și programate
               </h2>
               <p className="text-xs text-slate-500">
-                Data descărcării mai mare sau egală cu ziua curentă
+                Data descărcării ≥ azi, cu țară și localitate completate
               </p>
             </div>
             <button
@@ -392,14 +507,22 @@ export function OverviewView({
               Nu există curse active pentru astăzi sau zilele următoare.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <SyncedScrollTable maxHeightClass="max-h-[380px]">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">Camion / Remorcă</th>
-                    <th className="py-2.5 px-4">Destinație</th>
-                    <th className="py-2.5 px-4">Descărcare</th>
-                    <th className="py-2.5 px-4">Șofer</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Camion / Remorcă
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Destinație
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Descărcare
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Șofer
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -407,14 +530,15 @@ export function OverviewView({
                     <tr
                       key={trip.rowIndex}
                       onClick={() => onEditTrip(trip)}
-                      className="hover:bg-slate-50 cursor-pointer transition-colors"
+                      className="group hover:bg-slate-50 cursor-pointer transition-colors"
                     >
-                      <td className="py-2.5 px-4 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
                         {trip.cells[1] || '—'}
                       </td>
                       <td className="py-2.5 px-4 text-slate-700">
-                        <span className="font-medium text-slate-900">
-                          {trip.tara || '—'}
+                        <span className="inline-flex items-center gap-1.5 font-medium text-slate-900">
+                          <CountryFlag code={trip.tara} className="w-4 h-3" />
+                          <span>{trip.tara || '—'}</span>
                         </span>
                         {trip.localitate ? (
                           <span className="text-slate-500"> · {trip.localitate}</span>
@@ -432,7 +556,7 @@ export function OverviewView({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           )}
         </section>
 
@@ -461,19 +585,25 @@ export function OverviewView({
               Toate remorcile din flotă sunt alocate în curse active.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <SyncedScrollTable maxHeightClass="max-h-[380px]">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">Remorcă</th>
-                    <th className="py-2.5 px-4">Nefolosită din</th>
-                    <th className="py-2.5 px-4">Ultimul șofer</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Remorcă
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Nefolosită din
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Ultimul șofer
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {freeTrailers.slice(0, 6).map((item) => (
-                    <tr key={item.remorca} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-4 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
+                    <tr key={item.remorca} className="group hover:bg-slate-50">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
                         {item.remorca}
                       </td>
                       <td className="py-2.5 px-4 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums">
@@ -486,7 +616,7 @@ export function OverviewView({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           )}
         </section>
       </div>

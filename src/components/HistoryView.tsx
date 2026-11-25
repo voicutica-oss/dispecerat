@@ -1,6 +1,8 @@
-import { Search } from 'lucide-react';
+import { FileDown, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { exportHistoryPdf } from '../utils/pdfExport';
 import { plainRo } from '../utils/roDates';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface HistoryViewProps {
   istoric: string[][];
@@ -48,6 +50,13 @@ export function HistoryView({ istoric }: HistoryViewProps) {
       });
   }, [istoric, search, tabFilter]);
 
+  const handleExportPdf = () => {
+    const parts: string[] = [];
+    if (tabFilter !== 'ALL') parts.push(`Tab: ${tabFilter}`);
+    if (search.trim()) parts.push(`Cautare: "${search.trim()}"`);
+    exportHistoryPdf(rows, parts.join(', '));
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -81,9 +90,20 @@ export function HistoryView({ istoric }: HistoryViewProps) {
           </div>
         </div>
 
-        <span className="text-xs text-slate-500 tabular-nums">
-          Ultimele {rows.length} înregistrări
-        </span>
+        <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
+          <span className="text-xs text-slate-500 tabular-nums">
+            Ultimele {rows.length} înregistrări
+          </span>
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={rows.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            <FileDown className="h-3.5 w-3.5 text-slate-500" />
+            <span>Export PDF</span>
+          </button>
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -92,23 +112,37 @@ export function HistoryView({ istoric }: HistoryViewProps) {
             Nu există modificări înregistrate în foaia „istoric”.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <SyncedScrollTable>
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 px-4 whitespace-nowrap">Data și ora</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Utilizator</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Tab</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Rând</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Acțiune</th>
-                  <th className="py-2.5 px-4">Înainte</th>
-                  <th className="py-2.5 px-4">După</th>
+                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                  <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    Data și ora
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    Utilizator
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    Tab
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    Rând
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    Acțiune
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    Înainte
+                  </th>
+                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    După
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {rows.map((r, i) => (
-                  <tr key={i} className="hover:bg-slate-50 align-top">
-                    <td className="py-2.5 px-4 font-mono text-slate-600 whitespace-nowrap tabular-nums">
+                  <tr key={i} className="group hover:bg-slate-50 align-top">
+                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-slate-600 whitespace-nowrap tabular-nums">
                       {r[0] || '—'}
                     </td>
                     <td className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
@@ -143,7 +177,7 @@ export function HistoryView({ istoric }: HistoryViewProps) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </SyncedScrollTable>
         )}
       </div>
     </div>

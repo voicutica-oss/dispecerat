@@ -1,6 +1,8 @@
 import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { plainRo } from '../utils/roDates';
+import { CountryFlag } from './CountryFlag';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface TrailerHistoryViewProps {
   istoricRemorci: string[][];
@@ -191,8 +193,10 @@ export function TrailerHistoryView({
                           </div>
                         )}
                         {(r[7] || r[8] || r[9]) && (
-                          <div>
-                            Desc. predată: {[r[7], r[8], r[9]].filter(Boolean).join(' · ')}
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span>Desc. predată:</span>
+                            {r[7] && <CountryFlag code={r[7]} className="w-3.5 h-2.5" />}
+                            <span>{[r[7], r[8], r[9]].filter(Boolean).join(' · ')}</span>
                           </div>
                         )}
                         {r[10] && <div>Șofer predă: {r[10]}</div>}
@@ -200,12 +204,19 @@ export function TrailerHistoryView({
                     )}
 
                     {capPreia && (
-                      <div className="pt-1 border-t border-slate-100 text-slate-600">
-                        Preluat de <strong className="font-mono text-slate-800">{capPreia}</strong>
-                        {r[12] ? ` (${r[12]})` : ''}
-                        {r[13] ? ` · ${r[13]}` : ''}
-                        {(r[14] || r[15] || r[16]) &&
-                          ` · ${[r[14], r[15], r[16]].filter(Boolean).join(' / ')}`}
+                      <div className="pt-1 border-t border-slate-100 text-slate-600 flex flex-wrap items-center gap-1">
+                        <span>
+                          Preluat de <strong className="font-mono text-slate-800">{capPreia}</strong>
+                          {r[12] ? ` (${r[12]})` : ''}
+                          {r[13] ? ` · ${r[13]}` : ''}
+                        </span>
+                        {(r[14] || r[15] || r[16]) && (
+                          <span className="inline-flex items-center gap-1">
+                            <span>·</span>
+                            {r[14] && <CountryFlag code={r[14]} className="w-3.5 h-2.5" />}
+                            <span>{[r[14], r[15], r[16]].filter(Boolean).join(' / ')}</span>
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -213,19 +224,19 @@ export function TrailerHistoryView({
               })}
             </div>
 
-            <div className="hidden md:block overflow-x-auto">
+            <SyncedScrollTable className="hidden md:block">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-medium text-slate-500">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-500">
                     {headers.map((h, idx) => (
                       <th
                         key={idx}
-                        className={`py-2.5 px-3 whitespace-nowrap ${
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 whitespace-nowrap ${
                           idx === 0
-                            ? 'sticky left-0 bg-slate-50 z-10 border-r border-slate-200'
+                            ? 'left-0 z-30 border-r border-slate-200'
                             : idx === 1
-                              ? 'sticky left-[58px] bg-slate-50 z-10 border-r border-slate-200'
-                              : ''
+                              ? 'left-[58px] z-30 border-r border-slate-200'
+                              : 'z-20'
                         }`}
                       >
                         {h}
@@ -235,7 +246,7 @@ export function TrailerHistoryView({
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {rows.map((r, rowIdx) => (
-                    <tr key={rowIdx} className="hover:bg-slate-50">
+                    <tr key={rowIdx} className="group hover:bg-slate-50">
                       {DEFAULT_HEADERS.map((_, colIdx) => {
                         const val = String(r[colIdx] || '').trim();
                         const isMono =
@@ -252,9 +263,9 @@ export function TrailerHistoryView({
                               isMono ? 'font-mono tabular-nums' : ''
                             } ${
                               colIdx === 0
-                                ? 'text-slate-400 sticky left-0 bg-white z-10 border-r border-slate-200'
+                                ? 'text-slate-400 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200'
                                 : colIdx === 1
-                                  ? 'font-semibold text-slate-900 sticky left-[58px] bg-white z-10 border-r border-slate-200'
+                                  ? 'font-semibold text-slate-900 sticky left-[58px] bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200'
                                   : colIdx === 2 && val
                                     ? 'font-medium text-amber-800'
                                     : colIdx === 3 && val
@@ -264,7 +275,14 @@ export function TrailerHistoryView({
                                         : 'text-slate-700'
                             }`}
                           >
-                            {val || '—'}
+                            {(colIdx === 7 || colIdx === 14) && val ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <CountryFlag code={val} className="w-4 h-3" />
+                                <span>{val}</span>
+                              </span>
+                            ) : (
+                              val || '—'
+                            )}
                           </td>
                         );
                       })}
@@ -272,7 +290,7 @@ export function TrailerHistoryView({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           </>
         )}
       </div>

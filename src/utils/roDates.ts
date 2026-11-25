@@ -187,7 +187,8 @@ export function computeFreeTrailers(
   const activa: Record<string, boolean> = {};
   const sofer: Record<string, string> = {};
   const flotaNotes: Record<string, string> = {};
-  const incompleteInCurse: Record<string, boolean> = {};
+  const missingDestInCurse: Record<string, boolean> = {};
+  const yardOrWaitInCurse: Record<string, boolean> = {};
 
   const registerTrailer = (raw: string, preferName = false) => {
     const clean = String(raw || '').trim();
@@ -214,14 +215,17 @@ export function computeFreeTrailers(
     const k = registerTrailer(remorca);
     if (!k) continue;
     const drv = String(r[7] || '').trim();
+    const dataPlain = plainRo(r[2]);
     const d = parseRoDate(r[2]);
     const hasTara = Boolean(String(r[3] || '').trim());
     const hasLoc = Boolean(String(r[4] || '').trim());
 
-    if (d && d >= azi && hasTara && hasLoc) {
+    if (dataPlain === 'curte' || dataPlain === 'sofer') {
+      yardOrWaitInCurse[k] = true;
+    } else if (d && d >= azi && hasTara && hasLoc) {
       activa[k] = true;
-    } else {
-      incompleteInCurse[k] = true;
+    } else if (!hasTara || !hasLoc) {
+      missingDestInCurse[k] = true;
     }
 
     if (d && ((hasTara && hasLoc) || d < azi)) {
@@ -270,11 +274,13 @@ export function computeFreeTrailers(
   Object.keys(displayNames).forEach((k) => {
     if (!activa[k]) {
       const d = ultima[k] || null;
-      const motiv = incompleteInCurse[k]
-        ? 'Lipsă dată / țară / localitate'
-        : d
-          ? 'Cursă finalizată'
-          : 'Fără cursă activă';
+      const motiv = missingDestInCurse[k]
+        ? 'Fără țară / localitate descărcare'
+        : yardOrWaitInCurse[k]
+          ? 'În curte / așteaptă șofer'
+          : d
+            ? 'Cursă finalizată'
+            : 'Fără cursă activă';
       lista.push({
         rem: displayNames[k],
         d,
@@ -297,13 +303,127 @@ export function computeFreeTrailers(
   }));
 }
 
+export const SHEET1_DEFAULT_HEADERS = [
+  'id',
+  'Nr camion',
+  'data descarcarii',
+  'tara',
+  'localitatea',
+  'detalii',
+  'observații',
+  'nume sofer',
+  'TELEFON',
+  'REZERVA',
+  'TIP AUTO',
+  'AN FABRICATIE',
+  'PERIOADA ESTIMATA',
+  'GARAJ DIN',
+  'CAMIOANE original',
+] as const;
+
+export const FLOTA_DEFAULT_HEADERS = [
+  'Nr camion',
+  'Nr remorca',
+  'nume sofer',
+  'TIP',
+  'NR TELEFON',
+  'TELEFON REZERVA',
+  'AN FABRICATIE CAP TRACTOR',
+  'TIP AUTO',
+] as const;
+
+export interface FleetAutoFillResult {
+  telefon: string;
+  rezerva: string;
+  tipAuto: string;
+  anFabricatie: string;
+  camioaneOriginal: string;
+}
+
+export function computeFleetAutoFill(
+  params: { camion?: string; remorca?: string; soferi?: string },
+  flota: string[][]
+): FleetAutoFillResult {
+  const byCamion = new Map<
+    string,
+    { a: string; b: string; g: string; h: string }
+  >();
+  const byRemorca = new Map<
+    string,
+    { a: string; b: string; g: string; h: string }
+  >();
+  const bySofer = new Map<string, { e: string; f: string }>();
+
+  for (let i = 1; i < (flota?.length || 0); i++) {
+    const r = flota[i] || [];
+    const a = String(r[0] || '').trim();
+    const b = String(r[1] || '').trim();
+    const c = String(r[2] || '').trim();
+    const e = String(r[4] || '').trim();
+    const f = String(r[5] || '').trim();
+    const g = String(r[6] || '').trim();
+    const h = String(r[7] || '').trim();
+
+    const kCam = normRemKey(a);
+    if (kCam && !byCamion.has(kCam)) {
+      byCamion.set(kCam, { a, b, g, h });
+    }
+    const kRem = normRemKey(b);
+    if (kRem && !byRemorca.has(kRem)) {
+      byRemorca.set(kRem, { a, b, g, h });
+    }
+    const kSof = normRo(c);
+    if (kSof) {
+      const existing = bySofer.get(kSof);
+      if (!existing) {
+        bySofer.set(kSof, { e, f });
+      } else {
+        if (!existing.e && e) existing.e = e;
+        if (!existing.f && f) existing.f = f;
+      }
+    }
+  }
+
+  const kCamTarget = normRemKey(params.camion);
+  const camRow = kCamTarget ? byCamion.get(kCamTarget) : undefined;
+  const anFabricatie = camRow ? camRow.g : '';
+  const camioaneOriginal = camRow
+    ? camRow.b
+      ? `${camRow.a}/${camRow.b}`
+      : camRow.a
+    : '';
+
+  const remClean = String(params.remorca || '').trim();
+  const kRemTarget =
+    remClean && !/^schimb/i.test(remClean) ? normRemKey(remClean) : '';
+  const remRow = kRemTarget ? byRemorca.get(kRemTarget) : undefined;
+  const tipAuto = remRow ? remRow.h : '';
+
+  const tels: string[] = [];
+  const rezs: string[] = [];
+  for (const drv of splitDrivers(params.soferi)) {
+    const sofRow = bySofer.get(normRo(drv));
+    if (!sofRow) continue;
+    if (sofRow.e && !tels.includes(sofRow.e)) tels.push(sofRow.e);
+    if (sofRow.f && !rezs.includes(sofRow.f)) rezs.push(sofRow.f);
+  }
+
+  return {
+    telefon: tels.join(' / '),
+    rezerva: rezs.join(' / '),
+    tipAuto,
+    anFabricatie,
+    camioaneOriginal,
+  };
+}
+
 export function parseTrips(curse: string[][]): TripRecord[] {
   if (!curse || curse.length < 2) return [];
   const azi = todayRo();
   const rows: TripRecord[] = [];
   for (let i = 1; i < curse.length; i++) {
     const row = curse[i] || [];
-    const cells = Array.from({ length: 8 }, (_, idx) =>
+    const cells = Array.from({ length: 15 }, (_, idx) =>
       String(row[idx] || '').replace(/\r?\n/g, ' ').trim()
     );
     if (cells.every((c) => !c)) continue;
@@ -312,6 +432,9 @@ export function parseTrips(curse: string[][]): TripRecord[] {
     const dataStr = cells[2];
     const dataPlain = plainRo(dataStr);
     const d = parseRoDate(dataStr);
+    const hasTara = Boolean(cells[3]);
+    const hasLoc = Boolean(cells[4]);
+    const hasUnloadingDest = hasTara && hasLoc;
 
     let statusType: TripStatusType = 'unknown';
     if (isSwapRow(cells[1])) {
@@ -321,8 +444,14 @@ export function parseTrips(curse: string[][]): TripRecord[] {
     } else if (dataPlain === 'sofer') {
       statusType = 'driver_wait';
     } else if (d) {
-      statusType = d >= azi ? 'active' : 'done';
+      if (d >= azi) {
+        statusType = hasUnloadingDest ? 'active' : 'unknown';
+      } else {
+        statusType = 'done';
+      }
     }
+
+    const hasCapTractor = Boolean(camion);
 
     rows.push({
       rowIndex: i + 1,
@@ -334,7 +463,7 @@ export function parseTrips(curse: string[][]): TripRecord[] {
       tara: cells[3],
       localitate: cells[4],
       sofer: cells[7],
-      isActive: statusType === 'active',
+      isActive: statusType === 'active' && hasUnloadingDest && hasCapTractor,
       statusType,
     });
   }
@@ -342,29 +471,208 @@ export function parseTrips(curse: string[][]): TripRecord[] {
 }
 
 /**
- * Matches the real Google Sheet `vize medicale` format:
- * Col A/B: Nume șofer (with carry-forward when a driver has multiple documents),
- * Col C (index 2): Document,
- * Col D (index 3): Data expirare (dd.MM.yyyy).
+ * Parses `vize medicale` rows flexibly across common Google Sheet layouts:
+ * - Standard 4-column (`Nr. | Nume | Document | Data expirare`) with merged/blank names or numeric Nr.
+ * - 3-column (`Nume | Document | Data expirare`)
+ * - Reordered columns detected via header row, or driver-name section header rows above documents.
+ * Normalizes output cells to `[nr, effectiveName, document, dateStr]`.
  */
 export function parseVisas(vize: string[][]): VisaRecord[] {
-  if (!vize || vize.length < 2) return [];
+  if (!vize || vize.length === 0) return [];
   const rows: VisaRecord[] = [];
+  const isRowNum = (s: string) => /^\d+[.)]?$/.test(s.trim());
+  const isHeaderWord = (s: string) => {
+    const p = plainRo(s);
+    return (
+      p === 'nr' ||
+      p === 'nr.' ||
+      p === 'nr crt' ||
+      p === 'crt' ||
+      p === 'nume' ||
+      p === 'nume sofer' ||
+      p === 'sofer' ||
+      p === 'document' ||
+      p === 'data' ||
+      p === 'data expirare' ||
+      p === 'expira' ||
+      p === 'expirare'
+    );
+  };
+
+  let headerIdx = -1;
+  let nameCol = -1;
+  let docCol = -1;
+  let dateCol = -1;
+  let nrCol = -1;
+
+  for (let i = 0; i < Math.min(3, vize.length); i++) {
+    const r = vize[i] || [];
+    let nIdx = -1;
+    let dIdx = -1;
+    let dtIdx = -1;
+    let nrIdx = -1;
+    r.forEach((cell, cIdx) => {
+      const p = plainRo(cell);
+      if (!p) return;
+      if (nrIdx === -1 && (p === 'nr' || p === 'nr.' || p === 'nr crt' || p === 'crt')) {
+        nrIdx = cIdx;
+      } else if (
+        nIdx === -1 &&
+        (p.includes('nume') || p.includes('sofer') || p.includes('angajat'))
+      ) {
+        nIdx = cIdx;
+      } else if (
+        dIdx === -1 &&
+        (p.includes('doc') ||
+          p.includes('tip') ||
+          p.includes('viza') ||
+          p.includes('aviz') ||
+          p.includes('atestat') ||
+          p.includes('fisa') ||
+          p.includes('certif') ||
+          p.includes('analiz'))
+      ) {
+        dIdx = cIdx;
+      } else if (
+        dtIdx === -1 &&
+        (p.includes('expir') || p.includes('data') || p.includes('valab'))
+      ) {
+        dtIdx = cIdx;
+      }
+    });
+    const hits = [nIdx, dIdx, dtIdx].filter((x) => x >= 0).length;
+    if (hits >= 2) {
+      headerIdx = i;
+      nameCol = nIdx;
+      docCol = dIdx;
+      dateCol = dtIdx;
+      nrCol = nrIdx;
+      break;
+    }
+    if (nIdx >= 0 && dIdx === -1 && dtIdx === -1) {
+      const nextRows = vize.slice(i + 1, i + 10);
+      const multiDateRow = nextRows.some(
+        (nr) => (nr || []).filter((c) => Boolean(parseRoDate(c))).length >= 2
+      );
+      if (multiDateRow) {
+        const hdr = vize[i] || [];
+        let lastMatrixName = '';
+        for (let rIdx = i + 1; rIdx < vize.length; rIdx++) {
+          const mRow = vize[rIdx] || [];
+          const rawN = String(mRow[nIdx] || '').trim();
+          if (rawN && !isRowNum(rawN) && !isHeaderWord(rawN)) {
+            lastMatrixName = rawN;
+          }
+          const effName =
+            rawN && !isRowNum(rawN) && !isHeaderWord(rawN) ? rawN : lastMatrixName;
+          const rawNrVal = nrIdx >= 0 ? String(mRow[nrIdx] || '').trim() : '';
+          for (let c = 0; c < mRow.length; c++) {
+            if (c === nIdx || c === nrIdx) continue;
+            const cellDateStr = String(mRow[c] || '').trim();
+            const parsed = parseRoDate(cellDateStr);
+            if (!parsed) continue;
+            const docLabel = String(hdr[c] || '').trim() || `Document ${c + 1}`;
+            const daysLeft = diffDaysFromToday(parsed);
+            const status: VisaRecord['status'] =
+              daysLeft < 0 ? 'expired' : daysLeft <= 30 ? 'expiring' : 'valid';
+            rows.push({
+              rowIndex: rIdx + 1,
+              cells: [isRowNum(rawNrVal) ? rawNrVal : '', effName, docLabel, cellDateStr],
+              expiryDate: parsed,
+              daysLeft,
+              status,
+            });
+          }
+        }
+        return rows;
+      }
+    }
+  }
+
+  const startRow = headerIdx >= 0 ? headerIdx + 1 : 1;
+
+  if (nameCol === -1 || docCol === -1 || dateCol === -1) {
+    const sampleRows = vize.slice(startRow, startRow + 15);
+    const hasCol3Dates = sampleRows.some((r) => Boolean(parseRoDate(r?.[3])));
+    const hasCol2Dates = sampleRows.some((r) => Boolean(parseRoDate(r?.[2])));
+    const hasCol1Dates = sampleRows.some((r) => Boolean(parseRoDate(r?.[1])));
+
+    if (!hasCol3Dates && hasCol2Dates) {
+      if (nameCol === -1) nameCol = 0;
+      if (docCol === -1) docCol = 1;
+      if (dateCol === -1) dateCol = 2;
+    } else if (!hasCol3Dates && !hasCol2Dates && hasCol1Dates) {
+      if (docCol === -1) docCol = 0;
+      if (dateCol === -1) dateCol = 1;
+      if (nameCol === -1) nameCol = 2;
+    } else {
+      if (nrCol === -1) nrCol = 0;
+      if (nameCol === -1) nameCol = 1;
+      if (docCol === -1) docCol = 2;
+      if (dateCol === -1) dateCol = 3;
+    }
+  }
+
   let lastName = '';
 
-  for (let i = 1; i < vize.length; i++) {
+  for (let i = startRow; i < vize.length; i++) {
     const row = vize[i] || [];
-    const cells = Array.from({ length: 4 }, (_, idx) =>
-      String(row[idx] || '').trim()
-    );
-    if (!cells[2] && !cells[3]) continue;
+    const get = (idx: number) => (idx >= 0 ? String(row[idx] || '').trim() : '');
 
-    const nm = (cells[1] || cells[0] || '').trim();
-    if (nm) lastName = nm;
-    const effectiveName = nm || lastName;
-    const normalizedCells = [cells[0], effectiveName, cells[2], cells[3]];
+    const rawNr = get(nrCol);
+    const rawName = get(nameCol);
+    let rawDoc = get(docCol);
+    let rawDate = get(dateCol);
 
-    const parsed = parseRoDate(cells[3]) || parseRoDate(cells[2]);
+    let candidateName =
+      rawName && !isRowNum(rawName) && !isHeaderWord(rawName) && !parseRoDate(rawName)
+        ? rawName
+        : '';
+
+    if (!candidateName) {
+      for (let c = 0; c < row.length; c++) {
+        if (c === docCol || c === dateCol) continue;
+        const val = String(row[c] || '').trim();
+        if (val && !isRowNum(val) && !isHeaderWord(val) && !parseRoDate(val)) {
+          candidateName = val;
+          break;
+        }
+      }
+    }
+
+    if (candidateName) {
+      lastName = candidateName;
+    }
+
+    let parsed = parseRoDate(rawDate);
+    if (!parsed && rawDoc) {
+      const maybeDate = parseRoDate(rawDoc);
+      if (maybeDate) {
+        parsed = maybeDate;
+        rawDate = rawDoc;
+        rawDoc = '';
+      }
+    }
+    if (!parsed) {
+      for (let c = 0; c < row.length; c++) {
+        if (c === nameCol || c === nrCol) continue;
+        const val = String(row[c] || '').trim();
+        const d = parseRoDate(val);
+        if (d) {
+          parsed = d;
+          rawDate = val;
+          break;
+        }
+      }
+    }
+
+    if (!rawDoc && !rawDate) continue;
+    if (isHeaderWord(rawDoc) || isHeaderWord(rawDate)) continue;
+
+    const effectiveName = candidateName || lastName;
+    const nrDisplay = isRowNum(rawNr) ? rawNr : '';
+    const normalizedCells = [nrDisplay, effectiveName, rawDoc, rawDate];
+
     let daysLeft: number | null = null;
     let status: VisaRecord['status'] = 'unknown';
     if (parsed) {

@@ -27,6 +27,7 @@ import type {
   VisaRecord,
 } from './types/fleet';
 import {
+  computeFleetAutoFill,
   computeFreeTrailers,
   countLeaveDaysByType,
   diffDaysFromToday,
@@ -40,6 +41,7 @@ import {
   parseRoDate,
   parseTrips,
   parseVisas,
+  parteNr,
   plainRo,
   splitDrivers,
   todayRo,
@@ -226,7 +228,7 @@ export default function App() {
       setSyncError(null);
       try {
         const fresh = await syncFromGas(cfg.scriptUrl, cfg.key);
-        setScriptOutdated(Number(fresh.scriptVersion || 0) < 2.6);
+        setScriptOutdated(Number(fresh.scriptVersion || 0) < 2.9);
         if (pendingSavesRef.current > 0) return;
 
         const now = Date.now();
@@ -437,6 +439,7 @@ export default function App() {
     }
 
     const urgentUnloadings = trips.filter((t) => {
+      if (!t.isActive) return false;
       const d = t.dataDescDate ? diffDaysFromToday(t.dataDescDate) : null;
       return d !== null && d >= 0 && d <= 2;
     });
@@ -549,6 +552,24 @@ export default function App() {
     const userName = config.user || 'Dispecer';
     const nowStr = fmtRoDateTime(new Date());
 
+    const nrParts = parteNr(payload.values[1] || '');
+    const autoFill = computeFleetAutoFill(
+      {
+        camion: nrParts.camion,
+        remorca: nrParts.remorca,
+        soferi: payload.values[7] || '',
+      },
+      data.flota
+    );
+    const values15 = Array.from({ length: 15 }, (_, idx) =>
+      String(payload.values[idx] || '').trim()
+    );
+    if (!values15[8]) values15[8] = autoFill.telefon;
+    if (!values15[9]) values15[9] = autoFill.rezerva;
+    if (!values15[10]) values15[10] = autoFill.tipAuto;
+    if (!values15[11]) values15[11] = autoFill.anFabricatie;
+    if (!values15[14]) values15[14] = autoFill.camioaneOriginal;
+
     applyLocalData((prev) => {
       if (pendingSavesRef.current === 0) {
         preSaveServerLogSigRef.current = JSON.stringify(
@@ -565,9 +586,9 @@ export default function App() {
         oldRowCells = [...nextCurse[payload.row - 1]];
         oldNr = String(oldRowCells[1] || '');
         before = oldRowCells.join(' | ');
-        nextCurse[payload.row - 1] = [...payload.values];
+        nextCurse[payload.row - 1] = [...values15];
       } else {
-        nextCurse.push([...payload.values]);
+        nextCurse.push([...values15]);
       }
 
       const logRow = [
@@ -577,7 +598,7 @@ export default function App() {
         String(rowNum),
         payload.row ? 'Modificare' : 'Adăugare',
         before,
-        payload.values.join(' | '),
+        values15.join(' | '),
       ];
 
       const extraLogs: string[][] = [logRow];
@@ -589,13 +610,13 @@ export default function App() {
       });
 
       const oldRemRaw = (oldNr.split('/')[1] || '').trim();
-      const newRemRaw = (String(payload.values[1] || '').split('/')[1] || '').trim();
+      const newRemRaw = (String(values15[1] || '').split('/')[1] || '').trim();
       const oldRem = !oldRemRaw || /^schimb/i.test(oldRemRaw) ? '' : oldRemRaw;
       const newRem = !newRemRaw || /^schimb/i.test(newRemRaw) ? '' : newRemRaw;
       const nextIstoricRemorci = (prev.istoricRemorci || []).map((r) => [...r]);
 
       if ((oldRem || newRem) && oldRem.toUpperCase() !== newRem.toUpperCase()) {
-        const swapLoc = payload.loc || payload.values[4] || '';
+        const swapLoc = payload.loc || values15[4] || '';
         const swapLog = [
           nowStr,
           userName,
@@ -603,7 +624,7 @@ export default function App() {
           String(rowNum),
           'Schimb remorcă',
           oldNr,
-          swapLoc ? `${payload.values[1]} (${swapLoc})` : payload.values[1],
+          swapLoc ? `${values15[1]} (${swapLoc})` : values15[1],
         ];
         extraLogs.push(swapLog);
         recentOptimisticLogsRef.current.push({
@@ -614,7 +635,7 @@ export default function App() {
         });
 
         const camNew =
-          (String(payload.values[1] || '').split('/')[0] || '').trim() ||
+          (String(values15[1] || '').split('/')[0] || '').trim() ||
           (oldNr.split('/')[0] || '').trim();
         const todayStr = fmtRoDate(todayRo());
         let maxNr = 0;
@@ -631,11 +652,11 @@ export default function App() {
             ) {
               while (nextIstoricRemorci[i].length < 17) nextIstoricRemorci[i].push('');
               nextIstoricRemorci[i][11] = camNew;
-              nextIstoricRemorci[i][12] = payload.values[7] || '';
+              nextIstoricRemorci[i][12] = values15[7] || '';
               nextIstoricRemorci[i][13] = todayStr;
-              nextIstoricRemorci[i][14] = payload.values[3] || '';
-              nextIstoricRemorci[i][15] = payload.values[4] || '';
-              nextIstoricRemorci[i][16] = payload.values[2] || '';
+              nextIstoricRemorci[i][14] = values15[3] || '';
+              nextIstoricRemorci[i][15] = values15[4] || '';
+              nextIstoricRemorci[i][16] = values15[2] || '';
               matchedPrev = true;
               break;
             }
@@ -654,11 +675,11 @@ export default function App() {
               '',
               '',
               camNew,
-              payload.values[7] || '',
+              values15[7] || '',
               todayStr,
-              payload.values[3] || '',
-              payload.values[4] || '',
-              payload.values[2] || '',
+              values15[3] || '',
+              values15[4] || '',
+              values15[2] || '',
             ]);
           }
         }
@@ -674,7 +695,7 @@ export default function App() {
             oldRowCells[3] || '',
             oldRowCells[4] || '',
             oldRowCells[2] || '',
-            oldRowCells[7] || payload.values[7] || '',
+            oldRowCells[7] || values15[7] || '',
             '',
             '',
             '',
@@ -702,7 +723,7 @@ export default function App() {
         user: userName,
         kind: 'curse',
         row: payload.row,
-        values: payload.values,
+        values: values15,
         loc: payload.loc || '',
       });
     }
@@ -1050,7 +1071,7 @@ export default function App() {
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-950">
               <span>
                 <strong>Script Google Apps Script neactualizat la acest link.</strong>{' '}
-                În Apps Script apasă <strong>Implementare → Gestionați implementările → Editați → Versiune nouă → Implementează</strong> (sau lipește noul URL <code className="font-mono">/exec</code>), altfel concediile nu se pot citi/salva în Google Sheet.
+                În Apps Script apasă <strong>Implementare → Gestionați implementările → Editați → Versiune nouă → Implementează</strong> (sau lipește noul URL <code className="font-mono">/exec</code>), altfel coloanele I–O și concediile nu se pot actualiza automat în Google Sheet.
               </span>
               <button
                 type="button"
@@ -1135,6 +1156,8 @@ export default function App() {
                   visas={visas}
                   leaves={leaves}
                   history={data.istoric}
+                  flota={data.flota}
+                  istoricRemorci={data.istoricRemorci || []}
                   onNavigate={setActiveTab}
                   onEditTrip={(trip) => {
                     setEditingTrip(trip);

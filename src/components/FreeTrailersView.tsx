@@ -2,6 +2,7 @@ import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FreeTrailer } from '../types/fleet';
 import { isFlotaSwapTag, plainRo } from '../utils/roDates';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface FreeTrailersViewProps {
   freeTrailers: FreeTrailer[];
@@ -98,28 +99,40 @@ export function FreeTrailersView({ freeTrailers }: FreeTrailersViewProps) {
               })}
             </div>
 
-            <div className="hidden md:block overflow-x-auto">
+            <SyncedScrollTable className="hidden md:block">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">Nr.</th>
-                    <th className="py-2.5 px-4">Remorcă liberă</th>
-                    <th className="py-2.5 px-4">Flotă (col. D)</th>
-                    <th className="py-2.5 px-4">Nefolosită din</th>
-                    <th className="py-2.5 px-4">Ultimul șofer</th>
-                    <th className="py-2.5 px-4">Situație</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Remorcă liberă
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Nr.
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Flotă (col. D)
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Nefolosită din
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Ultimul șofer
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Situație
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {filtered.map((item, idx) => {
                     const isSwap = isFlotaSwapTag(item.flotaNote);
                     return (
-                      <tr key={item.remorca} className="hover:bg-slate-50">
+                      <tr key={item.remorca} className="group hover:bg-slate-50">
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
+                          {item.remorca}
+                        </td>
                         <td className="py-2.5 px-4 font-mono text-xs text-slate-400 tabular-nums">
                           {idx + 1}
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
-                          {item.remorca}
                         </td>
                         <td className="py-2.5 px-4 whitespace-nowrap">
                           {item.flotaNote ? (
@@ -150,7 +163,7 @@ export function FreeTrailersView({ freeTrailers }: FreeTrailersViewProps) {
                   })}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           </>
         )}
       </div>

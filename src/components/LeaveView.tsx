@@ -9,6 +9,7 @@ import {
   plainRo,
   splitDrivers,
 } from '../utils/roDates';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface LeaveViewProps {
   leaves: LeaveRecord[];
@@ -356,15 +357,25 @@ export function LeaveView({
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <SyncedScrollTable>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">Șofer</th>
-                    <th className="py-2.5 px-4">Perioadă & Tip</th>
-                    <th className="py-2.5 px-4 text-right">Durată</th>
-                    <th className="py-2.5 px-4 text-right">Total an șofer</th>
-                    <th className="py-2.5 px-4">Status / Suprapuneri</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Șofer
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Perioadă & Tip
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 text-right whitespace-nowrap">
+                      Durată
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 text-right whitespace-nowrap">
+                      Total an șofer
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Status / Suprapuneri
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -396,9 +407,9 @@ export function LeaveView({
                           )
                         }
                         title="Apasă pentru a modifica luna acestui șofer"
-                        className="hover:bg-slate-50 cursor-pointer"
+                        className="group hover:bg-slate-50 cursor-pointer"
                       >
-                        <td className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
                           {l.nume}
                         </td>
                         <td className="py-2.5 px-4 whitespace-nowrap">
@@ -451,7 +462,7 @@ export function LeaveView({
                   })}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           )}
         </div>
       ) : viewMode === 'matrix' ? (
@@ -461,17 +472,17 @@ export function LeaveView({
               Niciun șofer găsit în tabelul anual de concedii.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <SyncedScrollTable>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
                     {matrixHeaders.map((h, i) => (
                       <th
                         key={i}
-                        className={`py-2.5 px-3 whitespace-nowrap ${
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 whitespace-nowrap ${
                           i === 0
-                            ? 'sticky left-0 bg-slate-50 z-10 border-r border-slate-200'
-                            : ''
+                            ? 'left-0 z-30 border-r border-slate-200'
+                            : 'z-20'
                         }`}
                       >
                         {h || `Col ${i + 1}`}
@@ -486,7 +497,7 @@ export function LeaveView({
                     const totInfo = driverTotals.get(normRo(driverName));
 
                     return (
-                      <tr key={idx} className="hover:bg-slate-50">
+                      <tr key={idx} className="group hover:bg-slate-50">
                         {matrixHeaders.map((_, colIdx) => {
                           const isExtraTypeCol = colIdx >= baseLen;
                           const extraType = isExtraTypeCol
@@ -514,7 +525,7 @@ export function LeaveView({
                               }
                               className={`py-2 px-3 whitespace-nowrap ${
                                 colIdx === 0
-                                  ? 'font-medium text-slate-900 sticky left-0 bg-white z-10 border-r border-slate-200 cursor-pointer hover:text-blue-700'
+                                  ? 'font-medium text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 cursor-pointer hover:text-blue-700'
                                   : isMonthCol
                                     ? `font-mono tabular-nums cursor-pointer hover:bg-blue-50 ${val ? 'text-slate-900 font-medium' : 'text-slate-300'}`
                                     : val && val !== '0'
@@ -531,7 +542,7 @@ export function LeaveView({
                   })}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           )}
         </div>
       ) : (
@@ -541,17 +552,17 @@ export function LeaveView({
               Niciun șofer cu concediu de afișat.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <SyncedScrollTable>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2 px-4 min-w-[180px] sticky left-0 bg-slate-50 z-10 border-r border-slate-200">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2 px-4 min-w-[180px]">
                       Șofer
                     </th>
                     {dayNumbers.map((d) => (
                       <th
                         key={d}
-                        className="py-2 px-1 text-center font-mono text-[11px] min-w-[30px] tabular-nums"
+                        className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2 px-1 text-center font-mono text-[11px] min-w-[30px] tabular-nums"
                       >
                         {d}
                       </th>
@@ -560,10 +571,10 @@ export function LeaveView({
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {uniqueDriversForTimeline.map((drv) => (
-                    <tr key={drv.nume} className="hover:bg-slate-50">
+                    <tr key={drv.nume} className="group hover:bg-slate-50">
                       <td
                         onClick={() => onAddLeave(drv.nume, month)}
-                        className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap sticky left-0 bg-white z-10 border-r border-slate-200 cursor-pointer hover:text-blue-700"
+                        className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 cursor-pointer hover:text-blue-700"
                       >
                         {drv.nume}
                       </td>
@@ -602,7 +613,7 @@ export function LeaveView({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           )}
         </div>
       )}

@@ -1,7 +1,17 @@
-import { Edit3, Plus, Search } from 'lucide-react';
+import { Edit3, FileDown, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { TripRecord, TripStatusType } from '../types/fleet';
-import { isFlotaSwapTag, normRemKey, plainRo } from '../utils/roDates';
+import { formatCountryOption } from '../utils/countryFlags';
+import { exportTripsPdf } from '../utils/pdfExport';
+import {
+  computeFleetAutoFill,
+  isFlotaSwapTag,
+  normRemKey,
+  plainRo,
+  SHEET1_DEFAULT_HEADERS,
+} from '../utils/roDates';
+import { CountryFlag } from './CountryFlag';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface TripsViewProps {
   headers: string[];
@@ -19,7 +29,7 @@ const STATUS_LABELS: Record<TripStatusType, { label: string; cls: string }> = {
   yard: { label: 'În curte', cls: 'text-amber-700' },
   driver_wait: { label: 'Așteaptă șofer', cls: 'text-amber-700' },
   swap: { label: 'Schimb remorcă', cls: 'text-blue-700' },
-  unknown: { label: '—', cls: 'text-slate-400' },
+  unknown: { label: 'Fără descărcare', cls: 'text-slate-400' },
 };
 
 export function TripsView({
@@ -59,6 +69,25 @@ export function TripsView({
     return '';
   };
 
+  const resolvedCellsMap = useMemo(() => {
+    const map = new Map<number, string[]>();
+    trips.forEach((t) => {
+      const auto = computeFleetAutoFill(
+        { camion: t.camion, remorca: t.remorca, soferi: t.sofer },
+        flota
+      );
+      const next = [...t.cells];
+      while (next.length < 15) next.push('');
+      if (!next[8]) next[8] = auto.telefon;
+      if (!next[9]) next[9] = auto.rezerva;
+      if (!next[10]) next[10] = auto.tipAuto;
+      if (!next[11]) next[11] = auto.anFabricatie;
+      if (!next[14]) next[14] = auto.camioaneOriginal;
+      map.set(t.rowIndex, next);
+    });
+    return map;
+  }, [trips, flota]);
+
   const countries = useMemo(() => {
     const set = new Set<string>();
     trips.forEach((t) => {
@@ -85,28 +114,43 @@ export function TripsView({
       }
       if (!q) return true;
       const colD = getTrailerColD(t);
+      const dispCells = resolvedCellsMap.get(t.rowIndex) || t.cells;
       return (
-        t.cells.some((cell) => plainRo(cell).includes(q)) ||
+        dispCells.some((cell) => plainRo(cell).includes(q)) ||
         (colD ? plainRo(colD).includes(q) : false)
       );
     });
-  }, [trips, search, statusFilter, countryFilter, trailerColDMap]);
+  }, [trips, search, statusFilter, countryFilter, trailerColDMap, resolvedCellsMap]);
+
+  const totalWithTractor = useMemo(
+    () => trips.filter((t) => Boolean(t.camion.trim())).length,
+    [trips]
+  );
+  const filteredWithTractor = useMemo(
+    () => filtered.filter((t) => Boolean(t.camion.trim())).length,
+    [filtered]
+  );
 
   const colHeaders = useMemo(() => {
-    const defaults = [
-      'id',
-      'Nr camion',
-      'data descarcarii',
-      'tara',
-      'localitatea',
-      'detalii',
-      'observații',
-      'nume sofer',
-    ];
-    return defaults.map((d, i) =>
+    return SHEET1_DEFAULT_HEADERS.map((d, i) =>
       headers[i] && headers[i].trim() ? headers[i].trim() : d
     );
   }, [headers]);
+
+  const handleExportPdf = () => {
+    const filterParts: string[] = [];
+    const statusMap: Record<FilterMode, string> = {
+      all: 'Toate',
+      active: 'Active',
+      yard_wait: 'Curte / Sofer',
+      swap: 'Schimburi',
+      done: 'Finalizate',
+    };
+    if (statusFilter !== 'all') filterParts.push(`Stare: ${statusMap[statusFilter]}`);
+    if (countryFilter !== 'ALL') filterParts.push(`Tara: ${countryFilter}`);
+    if (search.trim()) filterParts.push(`Cautare: "${search.trim()}"`);
+    exportTripsPdf(filtered, resolvedCellsMap, filterParts.join(', '));
+  };
 
   return (
     <div className="space-y-4">
@@ -118,7 +162,7 @@ export function TripsView({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Caută camion, remorcă, șofer, localitate, detalii..."
+              placeholder="Caută camion, remorcă, șofer, telefon, tip auto..."
               className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-600"
             />
           </div>
@@ -157,16 +201,25 @@ export function TripsView({
             <option value="ALL">Toate țările</option>
             {countries.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {formatCountryOption(c)}
               </option>
             ))}
           </select>
         </div>
 
-        <div className="flex items-center justify-between xl:justify-end gap-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-between xl:justify-end gap-2.5 shrink-0">
           <span className="text-xs text-slate-500 tabular-nums">
-            {filtered.length} din {trips.length} rânduri
+            {filteredWithTractor} din {totalWithTractor} camioane
           </span>
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            <FileDown className="h-3.5 w-3.5 text-slate-500" />
+            <span>Export PDF</span>
+          </button>
           <button
             type="button"
             onClick={onAddTrip}
@@ -200,6 +253,7 @@ export function TripsView({
                 const st = STATUS_LABELS[trip.statusType];
                 const trailerFlag = getTrailerColD(trip);
                 const isSwapFlag = isFlotaSwapTag(trailerFlag);
+                const cells = resolvedCellsMap.get(trip.rowIndex) || trip.cells;
                 return (
                   <div
                     key={trip.rowIndex}
@@ -210,7 +264,7 @@ export function TripsView({
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-mono text-sm font-semibold text-slate-900 truncate">
-                            {trip.cells[1] || '—'}
+                            {cells[1] || '—'}
                           </span>
                           {trailerFlag && (
                             <span
@@ -224,14 +278,21 @@ export function TripsView({
                               {trailerFlag}
                             </span>
                           )}
+                          {cells[10] && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                              {cells[10]}
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5 truncate">
-                          {trip.cells[7] || 'Fără șofer'}
+                          {cells[7] || 'Fără șofer'}
+                          {cells[8] ? ` · ${cells[8]}` : ''}
+                          {cells[9] ? ` / ${cells[9]}` : ''}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         <div className="font-mono text-xs font-medium text-slate-900 tabular-nums">
-                          {trip.cells[2] || '—'}
+                          {cells[2] || '—'}
                         </div>
                         <div className={`text-[11px] font-medium ${st.cls}`}>
                           {st.label}
@@ -239,26 +300,38 @@ export function TripsView({
                       </div>
                     </div>
 
-                    {(trip.cells[3] || trip.cells[4]) && (
-                      <div className="text-xs text-slate-700 truncate">
-                        <span className="font-medium text-slate-900">
-                          {trip.cells[3]}
-                        </span>
-                        {trip.cells[3] && trip.cells[4] ? ' · ' : ''}
-                        <span>{trip.cells[4]}</span>
+                    {(cells[3] || cells[4]) && (
+                      <div className="text-xs text-slate-700 truncate flex items-center gap-1.5">
+                        {cells[3] && (
+                          <span className="inline-flex items-center gap-1 font-medium text-slate-900 shrink-0">
+                            <CountryFlag code={cells[3]} className="w-3.5 h-2.5" />
+                            <span>{cells[3]}</span>
+                          </span>
+                        )}
+                        {cells[3] && cells[4] ? <span className="text-slate-400">·</span> : null}
+                        <span className="truncate">{cells[4]}</span>
                       </div>
                     )}
 
-                    {(trip.cells[5] || trip.cells[6]) && (
+                    {(cells[5] || cells[6]) && (
                       <div className="text-xs text-slate-500 line-clamp-2">
-                        {[trip.cells[5], trip.cells[6]].filter(Boolean).join(' · ')}
+                        {[cells[5], cells[6]].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+
+                    {(cells[11] || cells[12] || cells[13] || cells[14]) && (
+                      <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
+                        {cells[11] && <span>An: {cells[11]}</span>}
+                        {cells[12] && <span>Est: {cells[12]}</span>}
+                        {cells[13] && <span>Garaj: {cells[13]}</span>}
+                        {cells[14] && <span>Orig: {cells[14]}</span>}
                       </div>
                     )}
 
                     <div className="pt-1 flex items-center justify-between text-xs">
                       <span className="font-mono text-[11px] text-slate-400">
                         Rând {trip.rowIndex}
-                        {trip.cells[0] ? ` · ID ${trip.cells[0]}` : ''}
+                        {cells[0] ? ` · ID ${cells[0]}` : ''}
                       </span>
                       <button
                         type="button"
@@ -277,18 +350,28 @@ export function TripsView({
               })}
             </div>
 
-            <div className="hidden md:block overflow-x-auto">
+            <SyncedScrollTable className="hidden md:block">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-3 whitespace-nowrap">Rând</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
                     {colHeaders.map((h, i) => (
-                      <th key={i} className="py-2.5 px-3 whitespace-nowrap">
+                      <th
+                        key={i}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 whitespace-nowrap ${
+                          i === 0
+                            ? 'left-0 z-30 border-r border-slate-200'
+                            : 'z-20'
+                        }`}
+                      >
                         {h}
                       </th>
                     ))}
-                    <th className="py-2.5 px-3 whitespace-nowrap">Stare</th>
-                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Acțiune</th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3 whitespace-nowrap">
+                      Stare
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3 text-right whitespace-nowrap">
+                      Acțiune
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -296,21 +379,20 @@ export function TripsView({
                     const st = STATUS_LABELS[trip.statusType];
                     const trailerFlag = getTrailerColD(trip);
                     const isSwapFlag = isFlotaSwapTag(trailerFlag);
+                    const cells = resolvedCellsMap.get(trip.rowIndex) || trip.cells;
                     return (
                       <tr
                         key={trip.rowIndex}
                         onClick={() => onEditTrip(trip)}
-                        className="hover:bg-slate-50/90 transition-colors cursor-pointer"
+                        title={`Rând ${trip.rowIndex}`}
+                        className="group hover:bg-slate-50 transition-colors cursor-pointer"
                       >
-                        <td className="py-2.5 px-3 font-mono text-xs text-slate-400 tabular-nums">
-                          {trip.rowIndex}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
-                          {trip.cells[0] || '—'}
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                          {cells[0] || '—'}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
                           <div className="inline-flex items-center gap-1.5">
-                            <span>{trip.cells[1] || '—'}</span>
+                            <span>{cells[1] || '—'}</span>
                             {trailerFlag && (
                               <span
                                 title={`Flotă col. D: ${trailerFlag}`}
@@ -326,38 +408,66 @@ export function TripsView({
                           </div>
                         </td>
                         <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
-                          {trip.cells[2] || '—'}
+                          {cells[2] || '—'}
                         </td>
                         <td className="py-2.5 px-3 font-medium text-slate-900 whitespace-nowrap">
-                          {trip.cells[3] || '—'}
+                          {cells[3] ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <CountryFlag code={cells[3]} className="w-4 h-3" />
+                              <span>{cells[3]}</span>
+                            </span>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td
                           className="py-2.5 px-3 text-slate-700 max-w-[230px] truncate"
-                          title={trip.cells[4]}
+                          title={cells[4]}
                         >
-                          {trip.cells[4] || '—'}
+                          {cells[4] || '—'}
                         </td>
                         <td
                           className="py-2.5 px-3 text-slate-600 max-w-[200px] truncate"
-                          title={trip.cells[5]}
+                          title={cells[5]}
                         >
-                          {trip.cells[5] || '—'}
+                          {cells[5] || '—'}
                         </td>
                         <td
                           className="py-2.5 px-3 text-slate-600 max-w-[240px] truncate"
-                          title={trip.cells[6]}
+                          title={cells[6]}
                         >
-                          {trip.cells[6] || '—'}
+                          {cells[6] || '—'}
                         </td>
                         <td
                           className="py-2.5 px-3 text-slate-900 font-medium max-w-[220px] truncate"
-                          title={trip.cells[7]}
+                          title={cells[7]}
                         >
-                          {trip.cells[7] || (
+                          {cells[7] || (
                             <span className="text-slate-400 text-xs font-normal">
                               —
                             </span>
                           )}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                          {cells[8] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                          {cells[9] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap">
+                          {cells[10] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                          {cells[11] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
+                          {cells[12] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
+                          {cells[13] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap">
+                          {cells[14] || '—'}
                         </td>
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           <span className={`text-xs font-medium ${st.cls}`}>
@@ -382,7 +492,7 @@ export function TripsView({
                   })}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           </>
         )}
       </div>

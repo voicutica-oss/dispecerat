@@ -2,6 +2,7 @@ import { Edit3, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { VisaRecord } from '../types/fleet';
 import { plainRo } from '../utils/roDates';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface VisasViewProps {
   headers: string[];
@@ -153,16 +154,28 @@ export function VisasView({
               ))}
             </div>
 
-            <div className="hidden md:block overflow-x-auto">
+            <SyncedScrollTable className="hidden md:block">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">{colHeaders[0]}</th>
-                    <th className="py-2.5 px-4">{colHeaders[1]}</th>
-                    <th className="py-2.5 px-4">{colHeaders[2]}</th>
-                    <th className="py-2.5 px-4">{colHeaders[3]}</th>
-                    <th className="py-2.5 px-4">Valabilitate</th>
-                    <th className="py-2.5 px-4 text-right">Acțiune</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      {colHeaders[0]}
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      {colHeaders[1]}
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      {colHeaders[2]}
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      {colHeaders[3]}
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Valabilitate
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 text-right whitespace-nowrap">
+                      Acțiune
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -170,9 +183,9 @@ export function VisasView({
                     <tr
                       key={visa.rowIndex}
                       onClick={() => onEditVisa(visa)}
-                      className="hover:bg-slate-50 cursor-pointer"
+                      className="group hover:bg-slate-50 cursor-pointer"
                     >
-                      <td className="py-2.5 px-4 font-mono text-xs text-slate-500 tabular-nums">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs text-slate-500 tabular-nums whitespace-nowrap">
                         {visa.cells[0] || visa.rowIndex}
                       </td>
                       <td className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
@@ -220,7 +233,7 @@ export function VisasView({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           </>
         )}
       </div>

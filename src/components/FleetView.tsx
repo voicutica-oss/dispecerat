@@ -1,7 +1,13 @@
 import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FreeTrailer, LeaveRecord, TripRecord } from '../types/fleet';
-import { normRo, plainRo } from '../utils/roDates';
+import {
+  FLOTA_DEFAULT_HEADERS,
+  normRemKey,
+  normRo,
+  plainRo,
+} from '../utils/roDates';
+import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface FleetViewProps {
   flota: string[][];
@@ -21,15 +27,10 @@ export function FleetView({
 
   const headers = useMemo(() => {
     const h = flota[0] || [];
-    return [
-      h[0] || 'Camion',
-      h[1] || 'Remorcă',
-      h[2] || 'Șofer titular',
-      h[3] || 'Observații',
-    ];
+    return FLOTA_DEFAULT_HEADERS.map((def, idx) =>
+      h[idx] && String(h[idx]).trim() ? String(h[idx]).trim() : def
+    );
   }, [flota]);
-
-  const normRemKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
   const activeTrailerSet = useMemo(() => {
     const map = new Map<string, TripRecord>();
@@ -53,10 +54,10 @@ export function FleetView({
     const q = plainRo(search);
     const out: { rowIdx: number; cells: string[] }[] = [];
     for (let i = 1; i < flota.length; i++) {
-      const cells = Array.from({ length: 4 }, (_, idx) =>
-        String(flota[i]?.[idx] || '')
+      const cells = Array.from({ length: 8 }, (_, idx) =>
+        String(flota[i]?.[idx] || '').trim()
       );
-      if (cells.every((c) => !c.trim())) continue;
+      if (cells.every((c) => !c)) continue;
       if (q && !cells.some((c) => plainRo(c).includes(q))) continue;
       out.push({ rowIdx: i + 1, cells });
     }
@@ -70,7 +71,8 @@ export function FleetView({
       (f) =>
         plainRo(f.remorca).includes(q) ||
         plainRo(f.ultimulSofer).includes(q) ||
-        plainRo(f.nefolositaDin).includes(q)
+        plainRo(f.nefolositaDin).includes(q) ||
+        plainRo(f.flotaNote).includes(q)
     );
   }, [freeTrailers, search]);
 
@@ -109,7 +111,7 @@ export function FleetView({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Caută camion, remorcă, șofer..."
+              placeholder="Caută camion, remorcă, șofer, telefon..."
               className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-600"
             />
           </div>
@@ -127,68 +129,148 @@ export function FleetView({
               Nicio înregistrare găsită în foaia „flota”.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">{headers[0]}</th>
-                    <th className="py-2.5 px-4">{headers[1]}</th>
-                    <th className="py-2.5 px-4">{headers[2]}</th>
-                    <th className="py-2.5 px-4">{headers[3]}</th>
-                    <th className="py-2.5 px-4">Situație cursă</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {fleetRows.map((row) => {
-                    const remKey = normRemKey(row.cells[1]);
-                    const activeTrip = remKey
-                      ? activeTrailerSet.get(remKey)
-                      : undefined;
-                    const driverOnLeave =
-                      row.cells[2].trim() &&
-                      activeLeaveDrivers.has(normRo(row.cells[2]));
+            <>
+              <div className="md:hidden divide-y divide-slate-200">
+                {fleetRows.map((row) => {
+                  const remKey = normRemKey(row.cells[1]);
+                  const activeTrip = remKey
+                    ? activeTrailerSet.get(remKey)
+                    : undefined;
+                  const driverOnLeave =
+                    row.cells[2] && activeLeaveDrivers.has(normRo(row.cells[2]));
 
-                    return (
-                      <tr key={row.rowIdx} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-4 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
-                          {row.cells[0] || '—'}
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
-                          {row.cells[1] || '—'}
-                        </td>
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <span className="text-slate-900 font-medium">
-                            {row.cells[2] || '—'}
+                  return (
+                    <div key={row.rowIdx} className="p-4 space-y-1.5 text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-mono text-sm font-semibold text-slate-900">
+                          {[row.cells[0], row.cells[1]].filter(Boolean).join('/') || '—'}
+                        </div>
+                        {row.cells[3] && (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-semibold uppercase text-slate-700">
+                            {row.cells[3]}
                           </span>
-                          {driverOnLeave && (
-                            <span className="ml-2 text-xs text-amber-700 font-medium">
-                              · În concediu azi
+                        )}
+                      </div>
+                      <div className="text-slate-800 font-medium">
+                        {row.cells[2] || 'Fără șofer'}
+                        {driverOnLeave && (
+                          <span className="ml-2 text-amber-700">· În concediu azi</span>
+                        )}
+                      </div>
+                      {(row.cells[4] || row.cells[5]) && (
+                        <div className="font-mono text-slate-600">
+                          Tel: {row.cells[4] || '—'}
+                          {row.cells[5] ? ` · Rezervă: ${row.cells[5]}` : ''}
+                        </div>
+                      )}
+                      {(row.cells[6] || row.cells[7]) && (
+                        <div className="font-mono text-slate-500">
+                          {row.cells[6] ? `An: ${row.cells[6]}` : ''}
+                          {row.cells[6] && row.cells[7] ? ' · ' : ''}
+                          {row.cells[7] ? row.cells[7] : ''}
+                        </div>
+                      )}
+                      <div>
+                        {activeTrip ? (
+                          <span className="text-emerald-700 font-medium">
+                            În cursă · {activeTrip.tara} {activeTrip.localitate} ({activeTrip.dataDesc})
+                          </span>
+                        ) : remKey ? (
+                          <span className="text-slate-500">Remorcă liberă</span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <SyncedScrollTable className="hidden md:block">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                      {headers.map((h, i) => (
+                        <th
+                          key={i}
+                          className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap ${
+                            i === 0
+                              ? 'left-0 z-30 border-r border-slate-200'
+                              : 'z-20'
+                          }`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                      <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap">
+                        Situație cursă
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {fleetRows.map((row) => {
+                      const remKey = normRemKey(row.cells[1]);
+                      const activeTrip = remKey
+                        ? activeTrailerSet.get(remKey)
+                        : undefined;
+                      const driverOnLeave =
+                        row.cells[2] &&
+                        activeLeaveDrivers.has(normRo(row.cells[2]));
+
+                      return (
+                        <tr key={row.rowIdx} className="group hover:bg-slate-50">
+                          <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
+                            {row.cells[0] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
+                            {row.cells[1] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 whitespace-nowrap">
+                            <span className="text-slate-900 font-medium">
+                              {row.cells[2] || '—'}
                             </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-4 text-slate-600">
-                          {row.cells[3] || '—'}
-                        </td>
-                        <td className="py-2.5 px-4 text-xs whitespace-nowrap">
-                          {activeTrip ? (
-                            <span className="text-emerald-700 font-medium">
-                              În cursă · {activeTrip.tara}{' '}
-                              {activeTrip.localitate} ({activeTrip.dataDesc})
-                            </span>
-                          ) : remKey ? (
-                            <span className="text-slate-500">
-                              Remorcă liberă
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            {driverOnLeave && (
+                              <span className="ml-2 text-xs text-amber-700 font-medium">
+                                · În concediu azi
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3.5 text-slate-600 whitespace-nowrap">
+                            {row.cells[3] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                            {row.cells[4] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                            {row.cells[5] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                            {row.cells[6] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap">
+                            {row.cells[7] || '—'}
+                          </td>
+                          <td className="py-2.5 px-3.5 text-xs whitespace-nowrap">
+                            {activeTrip ? (
+                              <span className="text-emerald-700 font-medium">
+                                În cursă · {activeTrip.tara}{' '}
+                                {activeTrip.localitate} ({activeTrip.dataDesc})
+                              </span>
+                            ) : remKey ? (
+                              <span className="text-slate-500">
+                                Remorcă liberă
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </SyncedScrollTable>
+            </>
           )}
         </div>
       ) : (
@@ -198,25 +280,35 @@ export function FleetView({
               Nu există remorci libere care să corespundă căutării.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <SyncedScrollTable>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                    <th className="py-2.5 px-4">Nr.</th>
-                    <th className="py-2.5 px-4">Remorcă</th>
-                    <th className="py-2.5 px-4">Nefolosită din</th>
-                    <th className="py-2.5 px-4">Ultimul șofer</th>
-                    <th className="py-2.5 px-4">Situație</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Remorcă
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Nr.
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Nefolosită din
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Ultimul șofer
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                      Situație
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {filteredFree.map((item, idx) => (
-                    <tr key={item.remorca} className="hover:bg-slate-50">
+                    <tr key={item.remorca} className="group hover:bg-slate-50">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
+                        {item.remorca}
+                      </td>
                       <td className="py-2.5 px-4 font-mono text-xs text-slate-400 tabular-nums">
                         {idx + 1}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
-                        {item.remorca}
                       </td>
                       <td className="py-2.5 px-4 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
                         {item.nefolositaDin}
@@ -231,7 +323,7 @@ export function FleetView({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </SyncedScrollTable>
           )}
         </div>
       )}
