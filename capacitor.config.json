@@ -12,11 +12,11 @@
   },
   "android": {
     "allowMixedContent": false,
-    "backgroundColor": "#0f3d7a"
+    "backgroundColor": "#093363"
   },
   "ios": {
     "contentInset": "automatic",
-    "backgroundColor": "#0f3d7a",
+    "backgroundColor": "#093363",
     "preferredContentMode": "mobile"
   }
 }

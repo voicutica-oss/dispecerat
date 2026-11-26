@@ -17,6 +17,7 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: [
           'apple-touch-icon.png',
+          'logo-camion.png',
           'pwa-192x192.png',
           'pwa-512x512.png',
           'pwa-maskable-512x512.png',
@@ -27,8 +28,8 @@ export default defineConfig(() => {
           short_name: 'Dispecerat',
           description:
             'Aplicație mobilă și desktop de dispecerat transport conectată la Google Sheets.',
-          theme_color: '#0f3d7a',
-          background_color: '#0f3d7a',
+          theme_color: '#093363',
+          background_color: '#093363',
           display: 'standalone',
           orientation: 'portrait',
           start_url: '/',
