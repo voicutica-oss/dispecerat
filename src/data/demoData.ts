@@ -27,6 +27,7 @@ export function createDemoData(): GasPayload {
         'PERIOADA ESTIMATA',
         'GARAJ DIN',
         'CAMIOANE original',
+        'data incarcarii',
       ],
       [
         '1',
@@ -44,6 +45,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-01-TLN/SB-09-TAL',
+        addDays(azi, -1),
       ],
       [
         '2',
@@ -61,6 +63,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-01-TTL/SB-82-TTL',
+        addDays(azi, -1),
       ],
       [
         '3',
@@ -78,6 +81,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-03-TTL/SB-30-TTL',
+        addDays(azi, -2),
       ],
       [
         '4',
@@ -95,6 +99,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-11-TTL/SB-45-TTL',
+        addDays(azi, -1),
       ],
       [
         '5',
@@ -112,6 +117,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-17-TTA/SB-49-TTL',
+        addDays(azi, 0),
       ],
       [
         '6',
@@ -129,6 +135,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-19-TTL/SB-96-TAL',
+        '',
       ],
       [
         '7',
@@ -145,6 +152,7 @@ export function createDemoData(): GasPayload {
         '',
         '',
         'Sibiu',
+        '',
         '',
       ],
       [
@@ -163,6 +171,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-33-TNA/SB-34-TNA',
+        addDays(azi, -10),
       ],
       [
         '9',
@@ -180,6 +189,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-05-TLN/SB-06-TLN',
+        addDays(azi, 1),
       ],
       [
         '10',
@@ -197,6 +207,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-15-TLN/SB-16-TLN',
+        addDays(azi, 1),
       ],
       [
         '11',
@@ -214,6 +225,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-21-TTA/SB-72-TAL',
+        addDays(azi, 2),
       ],
       [
         '12',
@@ -231,6 +243,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-23-TTL/SB-74-TAL',
+        addDays(azi, 1),
       ],
       [
         '13',
@@ -248,6 +261,7 @@ export function createDemoData(): GasPayload {
         '',
         'Sibiu',
         'SB-25-TNA/SB-26-TNA',
+        addDays(azi, 2),
       ],
       [
         '',
@@ -255,6 +269,7 @@ export function createDemoData(): GasPayload {
         '',
         '',
         'PLECAT CU SB78TOT',
+        '',
         '',
         '',
         '',
@@ -288,15 +303,19 @@ export function createDemoData(): GasPayload {
         'TELEFON REZERVA',
         'AN FABRICATIE CAP TRACTOR',
         'TIP AUTO',
+        'COL I',
+        'COL J',
+        'BIFA',
+        'ADR',
       ],
-      ['SB-01-TLN', 'SB-09-TAL', 'PACURARIU MIHAIL-DANIEL', '', '0732 222887', '0748 971157', '2023', 'ANVELOPE-2.85'],
-      ['SB-01-TTL', 'SB-82-TTL', 'FOGARASI TRISTAN-GHEORGHE', 'Schimb ulei programat', '0770 935198', '', '2024', ''],
-      ['SB-03-TTL', 'SB-30-TTL', 'Iancu Andrei-Paul', '', '0742 384116', '', '2023', 'ANVELOPE-2.85-ADR'],
-      ['SB-11-TTL', 'SB-45-TTL', 'DACHE MIHAI ILIE', '', '0728 858821', '0741 656622', '2023', ''],
-      ['SB-17-TTA', 'SB-49-TTL', 'CRAINIC ANDREI-GABRIEL', 'Echipaj dublu', '0728 858843', '0728 067703', '2025', ''],
-      ['SB-19-TTL', 'SB-96-TAL', '', 'Așteaptă șofer', '', '', '2023', ''],
-      ['SB-33-TNA', 'SB-34-TNA', 'CHITU SORIN CRISTIAN', '', '0728 858841', '', '2024', 'ANVELOPE-2.85'],
-      ['', 'SB-26-TAL', '', 'SCHIMB', '', '', '', 'ANVELOPE-2.85'],
+      ['SB-01-TLN', 'SB-09-TAL', 'PACURARIU MIHAIL-DANIEL', '', '0732 222887', '0748 971157', '2023', 'ANVELOPE-2.85', '', '', 'TRUE', 'TRUE'],
+      ['SB-01-TTL', 'SB-82-TTL', 'FOGARASI TRISTAN-GHEORGHE', 'Schimb ulei programat', '0770 935198', '', '2024', '', '', '', 'TRUE', 'FALSE'],
+      ['SB-03-TTL', 'SB-30-TTL', 'Iancu Andrei-Paul', '', '0742 384116', '', '2023', 'ANVELOPE-2.85-ADR', '', '', 'TRUE', 'TRUE'],
+      ['SB-11-TTL', 'SB-45-TTL', 'DACHE MIHAI ILIE', '', '0728 858821', '0741 656622', '2023', '', '', '', 'TRUE', 'FALSE'],
+      ['SB-17-TTA', 'SB-49-TTL', 'CRAINIC ANDREI-GABRIEL', 'Echipaj dublu', '0728 858843', '0728 067703', '2025', '', '', '', 'TRUE', 'TRUE'],
+      ['SB-19-TTL', 'SB-96-TAL', '', 'Așteaptă șofer', '', '', '2023', '', '', '', 'TRUE', 'FALSE'],
+      ['SB-33-TNA', 'SB-34-TNA', 'CHITU SORIN CRISTIAN', '', '0728 858841', '', '2024', 'ANVELOPE-2.85', '', '', 'TRUE', 'FALSE'],
+      ['', 'SB-26-TAL', '', 'SCHIMB', '', '', '', 'ANVELOPE-2.85', '', '', 'TRUE', 'FALSE'],
     ],
     concediu: [
       ['Iancu Andrei-Paul', addDays(azi, 3), addDays(azi, 7), 'CO'],

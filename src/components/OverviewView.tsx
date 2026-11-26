@@ -1,4 +1,4 @@
-import { ArrowRight, Bell, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowRight, Bell, ChevronDown, ChevronUp, Flame } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type {
   FreeTrailer,
@@ -8,7 +8,9 @@ import type {
   VisaRecord,
 } from '../types/fleet';
 import {
+  buildAdrDriversSet,
   diffDaysFromToday,
+  hasDriverAdr,
   LEAVE_TYPE_META,
   normRo,
   splitDrivers,
@@ -72,6 +74,7 @@ export function OverviewView({
     });
   };
 
+  const adrDrivers = useMemo(() => buildAdrDriversSet(flota), [flota]);
   const tripsWithTractor = trips.filter((t) => Boolean(t.camion.trim()));
   const activeTrips = tripsWithTractor.filter((t) => t.isActive);
 
@@ -406,7 +409,9 @@ export function OverviewView({
                 (t) => t.statusType === 'yard' || t.statusType === 'driver_wait'
               ).length
             }{' '}
-            în curte / fără șofer
+            în curte / din care{' '}
+            {tripsWithTractor.filter((t) => t.statusType === 'driver_wait').length}{' '}
+            fără șofer
           </div>
         </button>
 
@@ -548,7 +553,20 @@ export function OverviewView({
                         {trip.dataDesc || '—'}
                       </td>
                       <td className="py-2.5 px-4 text-slate-700 whitespace-nowrap">
-                        {trip.sofer || (
+                        {trip.sofer ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span>{trip.sofer}</span>
+                            {hasDriverAdr(trip.sofer, adrDrivers) && (
+                              <span
+                                title="Șofer cu atestat ADR (Flotă col. L)"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold tracking-wide"
+                              >
+                                <Flame className="h-3 w-3 text-orange-600" />
+                                ADR
+                              </span>
+                            )}
+                          </span>
+                        ) : (
                           <span className="text-amber-700 text-xs">Nealocat</span>
                         )}
                       </td>

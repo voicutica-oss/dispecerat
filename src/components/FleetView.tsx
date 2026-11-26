@@ -1,14 +1,20 @@
-import { Check, FileSpreadsheet, Plus, Search } from 'lucide-react';
+import { FileSpreadsheet, Flame, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import {
+  useResizableColumns,
+  type TableColSpec,
+} from '../hooks/useResizableColumns';
 import type { FreeTrailer, LeaveRecord, TripRecord } from '../types/fleet';
 import { exportToCsv } from '../utils/excelExport';
 import {
   FLOTA_DEFAULT_HEADERS,
+  isSheetCheckboxTrue,
   normRemKey,
   normRo,
   plainRo,
 } from '../utils/roDates';
 import { FleetModal } from './FleetModal';
+import { ResizableTh } from './ResizableTh';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface FleetViewProps {
@@ -16,25 +22,53 @@ interface FleetViewProps {
   freeTrailers: FreeTrailer[];
   trips: TripRecord[];
   leaves: LeaveRecord[];
+  onlyCheckedBifa: boolean;
+  onOnlyCheckedBifaChange: (checked: boolean) => void;
   onSaveFleet: (payload: { row?: number; values: string[] }) => Promise<void>;
 }
+
+const FLOTA_COLS: TableColSpec[] = [
+  { id: 'nr_camion', defaultWidth: 114, minWidth: 94, maxWidth: 220 },
+  { id: 'nr_remorca', defaultWidth: 108, minWidth: 84, maxWidth: 220 },
+  { id: 'nume_sofer', defaultWidth: 184, minWidth: 110, maxWidth: 360 },
+  { id: 'tip', defaultWidth: 76, minWidth: 52, maxWidth: 160 },
+  { id: 'telefon', defaultWidth: 118, minWidth: 86, maxWidth: 220 },
+  { id: 'telefon_rezerva', defaultWidth: 122, minWidth: 86, maxWidth: 220 },
+  { id: 'an_fabricatie', defaultWidth: 96, minWidth: 68, maxWidth: 180 },
+  { id: 'tip_auto', defaultWidth: 126, minWidth: 80, maxWidth: 240 },
+  { id: 'situatie', defaultWidth: 210, minWidth: 120, maxWidth: 420, flex: true },
+  { id: 'actiuni', defaultWidth: 98, minWidth: 84, maxWidth: 160 },
+];
+
+const FLOTA_LIBERE_COLS: TableColSpec[] = [
+  { id: 'nr_crt', defaultWidth: 62, minWidth: 46, maxWidth: 120 },
+  { id: 'remorca', defaultWidth: 122, minWidth: 96, maxWidth: 240 },
+  { id: 'nefolosita', defaultWidth: 132, minWidth: 96, maxWidth: 240 },
+  { id: 'sofer', defaultWidth: 188, minWidth: 100, maxWidth: 360 },
+  { id: 'situatie', defaultWidth: 180, minWidth: 110, maxWidth: 400, flex: true },
+];
 
 export function FleetView({
   flota,
   freeTrailers,
   trips,
   leaves,
+  onlyCheckedBifa,
+  onOnlyCheckedBifaChange,
   onSaveFleet,
 }: FleetViewProps) {
   const [subTab, setSubTab] = useState<'flota' | 'libere'>('flota');
   const [search, setSearch] = useState('');
-  const [onlyCheckedBifa, setOnlyCheckedBifa] = useState(true);
+  const [adrFilter, setAdrFilter] = useState<'all' | 'with' | 'without'>('all');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<{
     rowIdx: number;
     cells: string[];
   } | null>(null);
+
+  const flotaResize = useResizableColumns('flota', FLOTA_COLS);
+  const libereResize = useResizableColumns('flota_libere', FLOTA_LIBERE_COLS);
 
   const headers = useMemo(() => {
     const h = flota[0] || [];
@@ -77,10 +111,30 @@ export function FleetView({
 
       if (onlyCheckedBifa && !hasBifa && !q) continue;
       if (q && !cells.some((c) => plainRo(c).includes(q))) continue;
+
+      const hasDriver = Boolean(
+        cells[2] && cells[2] !== '-' && cells[2] !== '—'
+      );
+      const hasAdr = isSheetCheckboxTrue(cells[11]); // col L (index 11)
+      if (adrFilter === 'with' && !hasAdr) continue;
+      if (adrFilter === 'without' && (!hasDriver || hasAdr)) continue;
+
       out.push({ rowIdx: i + 1, cells });
     }
     return out;
-  }, [flota, search, onlyCheckedBifa]);
+  }, [flota, search, onlyCheckedBifa, adrFilter]);
+
+  const visibleFleetUnits = useMemo(() => {
+    const truckSet = new Set<string>();
+    const trailerSet = new Set<string>();
+    fleetRows.forEach((r) => {
+      const tKey = normRemKey(r.cells[0]);
+      const rKey = normRemKey(r.cells[1]);
+      if (tKey) truckSet.add(tKey);
+      if (rKey) trailerSet.add(rKey);
+    });
+    return { trucks: truckSet.size, trailers: trailerSet.size };
+  }, [fleetRows]);
 
   const filteredFree = useMemo(() => {
     const q = plainRo(search);
@@ -97,7 +151,7 @@ export function FleetView({
   const handleExportFleetExcel = () => {
     exportToCsv(
       'flota-vehicule',
-      [...headers, 'Situație cursă'],
+      [...headers, 'ADR', 'Situație cursă'],
       fleetRows.map((r) => {
         const remKey = normRemKey(r.cells[1]);
         const activeTrip = remKey ? activeTrailerSet.get(remKey) : undefined;
@@ -106,7 +160,8 @@ export function FleetView({
           : remKey
           ? 'Remorcă liberă'
           : '—';
-        return [...r.cells.slice(0, 8), status];
+        const adr = isSheetCheckboxTrue(r.cells[11]) ? 'ADR' : '';
+        return [...r.cells.slice(0, 8), adr, status];
       })
     );
   };
@@ -114,16 +169,25 @@ export function FleetView({
   const handleExportFreeExcel = () => {
     exportToCsv(
       'remorci-libere',
-      ['Remorcă', 'Nr.', 'Nefolosită din', 'Ultimul șofer', 'Situație'],
+      ['Nr. crt.', 'Remorcă liberă', 'Nefolosită din', 'Ultimul șofer', 'Situație'],
       filteredFree.map((f, i) => [
-        f.remorca,
         i + 1,
+        f.remorca,
         f.nefolositaDin,
         f.ultimulSofer || '—',
         f.motiv || 'Fără cursă activă',
       ])
     );
   };
+
+  const flotaHeaderLabels = [...headers.slice(0, 8), 'Situație cursă', 'Acțiuni'];
+  const libereHeaderLabels = [
+    'Nr. crt.',
+    'Remorcă liberă',
+    'Nefolosită din',
+    'Ultimul șofer',
+    'Situație',
+  ];
 
   return (
     <div className="space-y-4">
@@ -139,7 +203,7 @@ export function FleetView({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Flotă ({fleetRows.length})
+              Flotă ({visibleFleetUnits.trucks} cap · {visibleFleetUnits.trailers} rem)
             </button>
             <button
               type="button"
@@ -166,15 +230,54 @@ export function FleetView({
           </div>
 
           {subTab === 'flota' && (
-            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100">
-              <input
-                type="checkbox"
-                checked={onlyCheckedBifa}
-                onChange={(e) => setOnlyCheckedBifa(e.target.checked)}
-                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
-              />
-              <span>Doar cu bifa (col. K)</span>
-            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={onlyCheckedBifa}
+                  onChange={(e) => onOnlyCheckedBifaChange(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                />
+                <span>Doar cu bifa (col. K)</span>
+              </label>
+
+              <label
+                className={`inline-flex items-center gap-2 text-xs font-medium cursor-pointer border px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                  adrFilter === 'with'
+                    ? 'bg-orange-50 border-orange-300 text-orange-900'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={adrFilter === 'with'}
+                  onChange={(e) =>
+                    setAdrFilter(e.target.checked ? 'with' : 'all')
+                  }
+                  className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 h-4 w-4"
+                />
+                <Flame className="h-3.5 w-3.5 text-orange-600 shrink-0" />
+                <span>Șoferi cu ADR</span>
+              </label>
+
+              <label
+                className={`inline-flex items-center gap-2 text-xs font-medium cursor-pointer border px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                  adrFilter === 'without'
+                    ? 'bg-blue-50 border-blue-300 text-blue-900'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={adrFilter === 'without'}
+                  onChange={(e) =>
+                    setAdrFilter(e.target.checked ? 'without' : 'all')
+                  }
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                />
+                <span>Șoferi fără ADR</span>
+              </label>
+            </div>
           )}
         </div>
 
@@ -218,31 +321,54 @@ export function FleetView({
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           {fleetRows.length === 0 ? (
             <div className="p-10 text-center text-sm text-slate-500">
-              Nicio înregistrare găsită în foaia „flota” care să respecte filtrul cu bifa.
+              Nicio înregistrare găsită în foaia „flota” care să respecte filtrele selectate.
             </div>
           ) : (
-            <SyncedScrollTable>
-              <table className="w-full text-left border-collapse">
+            <SyncedScrollTable
+              hasCustomWidths={flotaResize.hasCustomWidths}
+              onResetWidths={flotaResize.resetWidths}
+            >
+              <table
+                style={{ minWidth: `${flotaResize.totalMinWidth}px` }}
+                className="w-full table-fixed text-left border-collapse"
+              >
+                <colgroup>
+                  {FLOTA_COLS.map((col) => {
+                    const useFlex =
+                      col.flex && flotaResize.widths[col.id] === undefined;
+                    return (
+                      <col
+                        key={col.id}
+                        style={
+                          useFlex
+                            ? { minWidth: `${col.defaultWidth}px` }
+                            : { width: `${flotaResize.getColWidth(col)}px` }
+                        }
+                      />
+                    );
+                  })}
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    {headers.slice(0, 8).map((h, i) => (
-                      <th
-                        key={i}
-                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap ${
+                    {FLOTA_COLS.map((col, i) => (
+                      <ResizableTh
+                        key={col.id}
+                        colId={col.id}
+                        width={flotaResize.getColWidth(col)}
+                        minWidth={col.minWidth}
+                        maxWidth={col.maxWidth}
+                        isResizing={flotaResize.resizingColId === col.id}
+                        onStartResize={flotaResize.startResize}
+                        title={flotaHeaderLabels[i]}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 ${
                           i === 0
-                            ? 'left-0 z-30 border-r border-slate-200 w-20 sm:w-24 max-w-[100px]'
+                            ? 'left-0 z-30 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)]'
                             : 'z-20'
-                        }`}
+                        } ${i === FLOTA_COLS.length - 1 ? 'text-right' : ''}`}
                       >
-                        {h}
-                      </th>
+                        {flotaHeaderLabels[i]}
+                      </ResizableTh>
                     ))}
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap">
-                      Situație cursă
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 text-right whitespace-nowrap">
-                      Acțiuni
-                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -255,42 +381,65 @@ export function FleetView({
                       row.cells[2] &&
                       activeLeaveDrivers.has(normRo(row.cells[2]));
 
+                    const driverAdr = isSheetCheckboxTrue(row.cells[11]);
+
                     return (
                       <tr key={row.rowIdx} className="group hover:bg-slate-50">
-                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 w-20 sm:w-24 max-w-[100px] whitespace-normal break-words">
+                        <td
+                          title={row.cells[0] || ''}
+                          className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] py-2.5 px-3 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap truncate"
+                        >
                           {row.cells[0] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
+                        <td
+                          title={row.cells[1] || ''}
+                          className="py-2.5 px-3 font-mono text-xs font-medium text-slate-900 whitespace-nowrap truncate"
+                        >
                           {row.cells[1] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 whitespace-normal break-words max-w-[180px]">
+                        <td className="py-2.5 px-3 whitespace-normal break-words leading-snug">
                           <span className="text-slate-900 font-medium">
                             {row.cells[2] || '—'}
                           </span>
+                          {driverAdr && (
+                            <span
+                              title="Șofer cu atestat ADR (Flotă col. L)"
+                              className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold tracking-wide align-middle"
+                            >
+                              <Flame className="h-3 w-3 text-orange-600" />
+                              ADR
+                            </span>
+                          )}
                           {driverOnLeave && (
-                            <span className="ml-2 text-xs text-amber-700 font-medium whitespace-nowrap">
+                            <span className="ml-1.5 text-xs text-amber-700 font-medium whitespace-nowrap">
                               · În concediu azi
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3.5 text-slate-600 whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap truncate">
                           {row.cells[3] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums truncate">
                           {row.cells[4] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums truncate">
                           {row.cells[5] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                        <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums truncate">
                           {row.cells[6] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-normal break-words max-w-[150px]">
+                        <td
+                          title={row.cells[7] || ''}
+                          className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-normal break-words leading-snug"
+                        >
                           {row.cells[7] || '—'}
                         </td>
-                        <td className="py-2.5 px-3.5 text-xs whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-xs whitespace-nowrap truncate">
                           {activeTrip ? (
-                            <span className="text-emerald-700 font-medium">
+                            <span
+                              title={`În cursă · ${activeTrip.tara} ${activeTrip.localitate} (${activeTrip.dataDesc})`}
+                              className="text-emerald-700 font-medium"
+                            >
                               În cursă · {activeTrip.tara}{' '}
                               {activeTrip.localitate} ({activeTrip.dataDesc})
                             </span>
@@ -302,7 +451,7 @@ export function FleetView({
                             <span className="text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => {
@@ -329,43 +478,72 @@ export function FleetView({
               Nu există remorci libere care să corespundă căutării.
             </div>
           ) : (
-            <SyncedScrollTable>
-              <table className="w-full text-left border-collapse">
+            <SyncedScrollTable
+              hasCustomWidths={libereResize.hasCustomWidths}
+              onResetWidths={libereResize.resetWidths}
+            >
+              <table
+                style={{ minWidth: `${libereResize.totalMinWidth}px` }}
+                className="w-full table-fixed text-left border-collapse"
+              >
+                <colgroup>
+                  {FLOTA_LIBERE_COLS.map((col) => {
+                    const useFlex =
+                      col.flex && libereResize.widths[col.id] === undefined;
+                    return (
+                      <col
+                        key={col.id}
+                        style={
+                          useFlex
+                            ? { minWidth: `${col.defaultWidth}px` }
+                            : { width: `${libereResize.getColWidth(col)}px` }
+                        }
+                      />
+                    );
+                  })}
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap w-24 sm:w-32 max-w-[120px]">
-                      Remorcă
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Nr.
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Nefolosită din
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Ultimul șofer
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Situație
-                    </th>
+                    {FLOTA_LIBERE_COLS.map((col, i) => (
+                      <ResizableTh
+                        key={col.id}
+                        colId={col.id}
+                        width={libereResize.getColWidth(col)}
+                        minWidth={col.minWidth}
+                        maxWidth={col.maxWidth}
+                        isResizing={libereResize.resizingColId === col.id}
+                        onStartResize={libereResize.startResize}
+                        title={libereHeaderLabels[i]}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 ${
+                          i === 1
+                            ? 'left-0 z-30 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)]'
+                            : 'z-20'
+                        }`}
+                      >
+                        {libereHeaderLabels[i]}
+                      </ResizableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {filteredFree.map((item, idx) => (
                     <tr key={item.remorca} className="group hover:bg-slate-50">
-                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 w-24 sm:w-32 max-w-[120px] whitespace-normal break-words">
-                        {item.remorca}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-xs text-slate-400 tabular-nums">
+                      <td className="py-2.5 px-3 font-mono text-xs text-slate-400 tabular-nums whitespace-nowrap">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-4 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                      <td
+                        title={item.remorca}
+                        className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] py-2.5 px-3 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap truncate"
+                      >
+                        {item.remorca}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums truncate">
                         {item.nefolositaDin}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-700 whitespace-normal break-words max-w-[200px]">
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-normal break-words leading-snug">
                         {item.ultimulSofer || '—'}
                       </td>
-                      <td className="py-2.5 px-4 text-xs text-slate-600 whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-xs text-slate-600 whitespace-nowrap truncate">
                         {item.motiv || 'Fără cursă activă'}
                       </td>
                     </tr>

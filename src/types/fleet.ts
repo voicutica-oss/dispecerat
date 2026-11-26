@@ -46,7 +46,7 @@ export type TripStatusType =
 
 export interface TripRecord {
   rowIndex: number; // 1-indexed spreadsheet row (2 = first data row)
-  cells: string[]; // 15 columns A-O: id, Nr camion, data descarcarii, tara, localitatea, detalii, observații, nume sofer, TELEFON, REZERVA, TIP AUTO, AN FABRICATIE, PERIOADA ESTIMATA, GARAJ DIN, CAMIOANE original
+  cells: string[]; // 16 columns A-P: id, Nr camion, data descarcarii, tara, localitatea, detalii, observații, nume sofer, TELEFON, REZERVA, TIP AUTO, AN FABRICATIE, PERIOADA ESTIMATA, GARAJ DIN, CAMIOANE original, data incarcarii
   camion: string;
   remorca: string;
   dataDesc: string;

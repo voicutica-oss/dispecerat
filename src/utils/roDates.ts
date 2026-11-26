@@ -319,7 +319,265 @@ export const SHEET1_DEFAULT_HEADERS = [
   'PERIOADA ESTIMATA',
   'GARAJ DIN',
   'CAMIOANE original',
+  'data incarcarii',
 ] as const;
+
+export function isSheetCheckboxTrue(val: string | undefined | null): boolean {
+  const p = plainRo(val);
+  if (!p) return false;
+  return !/^(false|nu|0|-|no)$/i.test(p);
+}
+
+export function buildAdrDriversSet(flota: string[][]): Set<string> {
+  const set = new Set<string>();
+  for (let i = 1; i < (flota?.length || 0); i++) {
+    const r = flota[i] || [];
+    const driverCell = String(r[2] || '').trim();
+    const adrCell = String(r[11] || '').trim(); // col L (index 11)
+    if (!driverCell || !isSheetCheckboxTrue(adrCell)) continue;
+    for (const drv of splitDrivers(driverCell)) {
+      const k = normRo(drv);
+      if (k) set.add(k);
+    }
+  }
+  return set;
+}
+
+export function hasDriverAdr(
+  driverNames: string | undefined | null,
+  adrDrivers: Set<string>
+): boolean {
+  if (!driverNames || adrDrivers.size === 0) return false;
+  return splitDrivers(driverNames).some((d) => adrDrivers.has(normRo(d)));
+}
+
+export function countFleetUnits(
+  flota: string[][],
+  onlyCheckedBifa: boolean
+): { trucks: number; trailers: number; rows: number } {
+  const truckSet = new Set<string>();
+  const trailerSet = new Set<string>();
+  let rows = 0;
+
+  for (let i = 1; i < (flota?.length || 0); i++) {
+    const r = flota[i] || [];
+    const cells = Array.from({ length: 12 }, (_, idx) =>
+      String(r[idx] || '').trim()
+    );
+    if (cells.every((c) => !c)) continue;
+
+    const hasBifa = isSheetCheckboxTrue(r[10]); // col K (index 10)
+    if (onlyCheckedBifa && !hasBifa) continue;
+
+    rows += 1;
+    const tKey = normRemKey(r[0]);
+    const rKey = normRemKey(r[1]);
+    if (tKey) truckSet.add(tKey);
+    if (rKey) trailerSet.add(rKey);
+  }
+
+  return {
+    trucks: truckSet.size,
+    trailers: trailerSet.size,
+    rows,
+  };
+}
+
+export function parseLoadingDate(
+  rawInc: string | undefined | null,
+  unloadDate: Date | null
+): Date | null {
+  const s = String(rawInc || '').trim();
+  if (!s) return null;
+
+  const full = parseRoDate(s);
+  if (full) return full;
+
+  const ref = unloadDate || todayRo();
+
+  const dm = s.match(/^(\d{1,2})[./-](\d{1,2})$/);
+  if (dm) {
+    const day = Number(dm[1]);
+    const month = Number(dm[2]) - 1;
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11) {
+      let d = new Date(ref.getFullYear(), month, day);
+      if (unloadDate && d > unloadDate) {
+        d = new Date(ref.getFullYear() - 1, month, day);
+      }
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  const dayOnly = s.match(/^(\d{1,2})$/);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    if (day >= 1 && day <= 31) {
+      let d = new Date(ref.getFullYear(), ref.getMonth(), day);
+      if (unloadDate && day > unloadDate.getDate()) {
+        d = new Date(ref.getFullYear(), ref.getMonth() - 1, day);
+      }
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  return null;
+}
+
+export function computeTripDays(
+  dataIncarcarii: string | undefined | null,
+  dataDescarcarii: string | undefined | null
+): {
+  days: number;
+  startDate: Date;
+  endDate: Date;
+  ongoing: boolean;
+} | null {
+  const descPlain = plainRo(dataDescarcarii);
+  if (descPlain === 'curte' || descPlain === 'sofer' || descPlain === 'fara sofer') {
+    return null;
+  }
+  const unloadDate = parseRoDate(dataDescarcarii);
+  const loadDate = parseLoadingDate(dataIncarcarii, unloadDate);
+
+  if (loadDate && unloadDate) {
+    if (unloadDate < loadDate) return null;
+    return {
+      days: daysBetweenInclusive(loadDate, unloadDate),
+      startDate: loadDate,
+      endDate: unloadDate,
+      ongoing: false,
+    };
+  }
+
+  if (loadDate && !String(dataDescarcarii || '').trim()) {
+    const azi = todayRo();
+    if (loadDate <= azi) {
+      const diff = daysBetweenInclusive(loadDate, azi);
+      if (diff <= 60) {
+        return {
+          days: diff,
+          startDate: loadDate,
+          endDate: azi,
+          ongoing: true,
+        };
+      }
+    }
+    return {
+      days: 1,
+      startDate: loadDate,
+      endDate: loadDate,
+      ongoing: true,
+    };
+  }
+
+  return null;
+}
+
+export function computeTruckWorkedDays(
+  trips: TripRecord[],
+  flota: string[][],
+  year: number
+): {
+  rows: string[][];
+  availableYears: number[];
+} {
+  const truckNames = new Map<string, string>();
+  const yearsSet = new Set<number>([todayRo().getFullYear()]);
+  const truckDays = new Map<string, Set<string>>();
+
+  for (let i = 1; i < (flota?.length || 0); i++) {
+    const cam = String(flota[i]?.[0] || '').trim();
+    const k = normRemKey(cam);
+    if (k && !truckNames.has(k)) {
+      truckNames.set(k, cam);
+    }
+  }
+
+  const azi = todayRo();
+
+  for (const t of trips) {
+    const cam = String(t.camion || '').trim();
+    const k = normRemKey(cam);
+    if (!k) continue;
+    if (!truckNames.has(k)) truckNames.set(k, cam);
+
+    if (
+      t.statusType === 'yard' ||
+      t.statusType === 'driver_wait' ||
+      t.statusType === 'swap'
+    ) {
+      continue;
+    }
+
+    const unloadDate = t.dataDescDate;
+    const loadDate = parseLoadingDate(t.cells[15], unloadDate);
+
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    if (loadDate && unloadDate) {
+      startDate = loadDate <= unloadDate ? loadDate : unloadDate;
+      endDate = loadDate <= unloadDate ? unloadDate : loadDate;
+    } else if (loadDate && !String(t.dataDesc || '').trim()) {
+      startDate = loadDate;
+      endDate =
+        loadDate <= azi && daysBetweenInclusive(loadDate, azi) <= 60
+          ? azi
+          : loadDate;
+    } else if (unloadDate) {
+      startDate = unloadDate;
+      endDate = unloadDate;
+    }
+
+    if (!startDate || !endDate) continue;
+
+    const spanDays = daysBetweenInclusive(startDate, endDate);
+    if (spanDays <= 0 || spanDays > 180) continue;
+
+    let daySet = truckDays.get(k);
+    if (!daySet) {
+      daySet = new Set<string>();
+      truckDays.set(k, daySet);
+    }
+
+    for (
+      let d = new Date(startDate.getTime());
+      d <= endDate;
+      d.setDate(d.getDate() + 1)
+    ) {
+      const y = d.getFullYear();
+      yearsSet.add(y);
+      const m = d.getMonth();
+      const day = d.getDate();
+      daySet.add(`${y}-${m}-${day}`);
+    }
+  }
+
+  const keys = Array.from(truckNames.keys()).sort((a, b) =>
+    (truckNames.get(a) || a).localeCompare(truckNames.get(b) || b)
+  );
+
+  const rows = keys.map((k) => {
+    const cam = truckNames.get(k) || k;
+    const daySet = truckDays.get(k);
+    const months = Array.from({ length: 12 }, () => 0);
+    if (daySet) {
+      for (const token of daySet) {
+        const [yStr, mStr] = token.split('-');
+        if (Number(yStr) === year) {
+          months[Number(mStr)] += 1;
+        }
+      }
+    }
+    const total = months.reduce((acc, n) => acc + n, 0);
+    return [cam, ...months.map(String), String(total)];
+  });
+
+  return {
+    rows,
+    availableYears: Array.from(yearsSet).sort((a, b) => b - a),
+  };
+}
 
 export const FLOTA_DEFAULT_HEADERS = [
   'Nr camion',
@@ -340,10 +598,13 @@ export interface FleetAutoFillResult {
   camioaneOriginal: string;
 }
 
-export function computeFleetAutoFill(
-  params: { camion?: string; remorca?: string; soferi?: string },
-  flota: string[][]
-): FleetAutoFillResult {
+export interface FleetAutoFillIndex {
+  byCamion: Map<string, { a: string; b: string; g: string; h: string }>;
+  byRemorca: Map<string, { a: string; b: string; g: string; h: string }>;
+  bySofer: Map<string, { e: string; f: string }>;
+}
+
+export function buildFleetAutoFillIndex(flota: string[][]): FleetAutoFillIndex {
   const byCamion = new Map<
     string,
     { a: string; b: string; g: string; h: string }
@@ -384,8 +645,15 @@ export function computeFleetAutoFill(
     }
   }
 
+  return { byCamion, byRemorca, bySofer };
+}
+
+export function resolveFleetAutoFillFromIndex(
+  params: { camion?: string; remorca?: string; soferi?: string },
+  index: FleetAutoFillIndex
+): FleetAutoFillResult {
   const kCamTarget = normRemKey(params.camion);
-  const camRow = kCamTarget ? byCamion.get(kCamTarget) : undefined;
+  const camRow = kCamTarget ? index.byCamion.get(kCamTarget) : undefined;
   const anFabricatie = camRow ? camRow.g : '';
   const camioaneOriginal = camRow
     ? camRow.b
@@ -396,13 +664,13 @@ export function computeFleetAutoFill(
   const remClean = String(params.remorca || '').trim();
   const kRemTarget =
     remClean && !/^schimb/i.test(remClean) ? normRemKey(remClean) : '';
-  const remRow = kRemTarget ? byRemorca.get(kRemTarget) : undefined;
+  const remRow = kRemTarget ? index.byRemorca.get(kRemTarget) : undefined;
   const tipAuto = remRow ? remRow.h : '';
 
   const tels: string[] = [];
   const rezs: string[] = [];
   for (const drv of splitDrivers(params.soferi)) {
-    const sofRow = bySofer.get(normRo(drv));
+    const sofRow = index.bySofer.get(normRo(drv));
     if (!sofRow) continue;
     if (sofRow.e && !tels.includes(sofRow.e)) tels.push(sofRow.e);
     if (sofRow.f && !rezs.includes(sofRow.f)) rezs.push(sofRow.f);
@@ -417,13 +685,20 @@ export function computeFleetAutoFill(
   };
 }
 
+export function computeFleetAutoFill(
+  params: { camion?: string; remorca?: string; soferi?: string },
+  flota: string[][]
+): FleetAutoFillResult {
+  return resolveFleetAutoFillFromIndex(params, buildFleetAutoFillIndex(flota));
+}
+
 export function parseTrips(curse: string[][]): TripRecord[] {
   if (!curse || curse.length < 2) return [];
   const azi = todayRo();
   const rows: TripRecord[] = [];
   for (let i = 1; i < curse.length; i++) {
     const row = curse[i] || [];
-    const cells = Array.from({ length: 15 }, (_, idx) =>
+    const cells = Array.from({ length: 16 }, (_, idx) =>
       String(row[idx] || '').replace(/\r?\n/g, ' ').trim()
     );
     if (cells.every((c) => !c)) continue;
@@ -441,7 +716,7 @@ export function parseTrips(curse: string[][]): TripRecord[] {
       statusType = 'swap';
     } else if (dataPlain === 'curte') {
       statusType = 'yard';
-    } else if (dataPlain === 'sofer') {
+    } else if (dataPlain === 'sofer' || dataPlain === 'fara sofer') {
       statusType = 'driver_wait';
     } else if (d) {
       if (d >= azi) {
@@ -468,6 +743,57 @@ export function parseTrips(curse: string[][]): TripRecord[] {
     });
   }
   return rows;
+}
+
+/**
+ * Maps raw Google Sheet headers for `vize medicale` onto normalized `[Nr., Nume șofer, Document, Data expirare]`
+ * even when the sheet omits the `Nr.` header and shifts headers left (`['nume sofer', 'document', 'data expirarii']`).
+ */
+export function resolveVisaColHeaders(
+  headers: string[]
+): [string, string, string, string] {
+  let nrH = '';
+  let nameH = '';
+  let docH = '';
+  let dateH = '';
+
+  for (const raw of headers || []) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) continue;
+    const p = plainRo(trimmed);
+    if (!nrH && (p === 'nr' || p === 'nr.' || p === 'nr crt' || p === 'crt')) {
+      nrH = trimmed;
+    } else if (
+      !nameH &&
+      (p.includes('nume') || p.includes('sofer') || p.includes('angajat'))
+    ) {
+      nameH = trimmed;
+    } else if (
+      !docH &&
+      (p.includes('doc') ||
+        p.includes('tip') ||
+        p.includes('viza') ||
+        p.includes('aviz') ||
+        p.includes('atestat') ||
+        p.includes('fisa') ||
+        p.includes('certif') ||
+        p.includes('analiz'))
+    ) {
+      docH = trimmed;
+    } else if (
+      !dateH &&
+      (p.includes('expir') || p.includes('data') || p.includes('valab'))
+    ) {
+      dateH = trimmed;
+    }
+  }
+
+  return [
+    nrH || 'Nr.',
+    nameH || 'Nume șofer',
+    docH || 'Document',
+    dateH || 'Data expirare',
+  ];
 }
 
 /**

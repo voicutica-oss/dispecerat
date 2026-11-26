@@ -1,17 +1,52 @@
 import { FileDown, FileSpreadsheet, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import {
+  useResizableColumns,
+  type TableColSpec,
+} from '../hooks/useResizableColumns';
 import { exportToCsv } from '../utils/excelExport';
 import { exportHistoryPdf } from '../utils/pdfExport';
 import { plainRo } from '../utils/roDates';
+import { ResizableTh } from './ResizableTh';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface HistoryViewProps {
   istoric: string[][];
 }
 
+const HISTORY_COLS: TableColSpec[] = [
+  { id: 'data_ora', defaultWidth: 126, minWidth: 94, maxWidth: 220 },
+  { id: 'utilizator', defaultWidth: 120, minWidth: 80, maxWidth: 240 },
+  { id: 'tab', defaultWidth: 122, minWidth: 80, maxWidth: 220 },
+  { id: 'rand', defaultWidth: 68, minWidth: 48, maxWidth: 120 },
+  { id: 'actiune', defaultWidth: 118, minWidth: 80, maxWidth: 200 },
+  { id: 'inainte', defaultWidth: 240, minWidth: 120, maxWidth: 520 },
+  { id: 'dupa', defaultWidth: 240, minWidth: 120, maxWidth: 520, flex: true },
+];
+
+const HISTORY_HEADERS = [
+  'Data și ora',
+  'Utilizator',
+  'Tab',
+  'Rând',
+  'Acțiune',
+  'Înainte',
+  'După',
+];
+
 export function HistoryView({ istoric }: HistoryViewProps) {
   const [search, setSearch] = useState('');
   const [tabFilter, setTabFilter] = useState<'ALL' | 'Curse' | 'Vize' | 'Concediu'>('ALL');
+
+  const {
+    widths,
+    resizingColId,
+    getColWidth,
+    totalMinWidth,
+    hasCustomWidths,
+    resetWidths,
+    startResize,
+  } = useResizableColumns('istoric_modificari', HISTORY_COLS);
 
   const rows = useMemo(() => {
     const q = plainRo(search);
@@ -129,49 +164,68 @@ export function HistoryView({ istoric }: HistoryViewProps) {
             Nu există modificări înregistrate în foaia „istoric”.
           </div>
         ) : (
-          <SyncedScrollTable>
-            <table className="w-full text-left border-collapse">
+          <SyncedScrollTable
+            hasCustomWidths={hasCustomWidths}
+            onResetWidths={resetWidths}
+          >
+            <table
+              style={{ minWidth: `${totalMinWidth}px` }}
+              className="w-full table-fixed text-left border-collapse"
+            >
+              <colgroup>
+                {HISTORY_COLS.map((col) => {
+                  const useFlex = col.flex && widths[col.id] === undefined;
+                  return (
+                    <col
+                      key={col.id}
+                      style={
+                        useFlex
+                          ? { minWidth: `${col.defaultWidth}px` }
+                          : { width: `${getColWidth(col)}px` }
+                      }
+                    />
+                  );
+                })}
+              </colgroup>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap w-24 sm:w-28 max-w-[110px]">
-                    Data și ora
-                  </th>
-                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                    Utilizator
-                  </th>
-                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                    Tab
-                  </th>
-                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                    Rând
-                  </th>
-                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                    Acțiune
-                  </th>
-                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                    Înainte
-                  </th>
-                  <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                    După
-                  </th>
+                  {HISTORY_COLS.map((col, idx) => (
+                    <ResizableTh
+                      key={col.id}
+                      colId={col.id}
+                      width={getColWidth(col)}
+                      minWidth={col.minWidth}
+                      maxWidth={col.maxWidth}
+                      isResizing={resizingColId === col.id}
+                      onStartResize={startResize}
+                      title={HISTORY_HEADERS[idx]}
+                      className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 ${
+                        idx === 0
+                          ? 'left-0 z-30 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)]'
+                          : 'z-20'
+                      }`}
+                    >
+                      {HISTORY_HEADERS[idx]}
+                    </ResizableTh>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {rows.map((r, i) => (
                   <tr key={i} className="group hover:bg-slate-50 align-top">
-                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-slate-600 w-24 sm:w-28 max-w-[110px] whitespace-normal break-words">
+                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] py-2.5 px-3 font-mono text-slate-600 whitespace-normal break-words leading-snug">
                       {r[0] || '—'}
                     </td>
-                    <td className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
+                    <td className="py-2.5 px-3 font-medium text-slate-900 whitespace-nowrap truncate">
                       {r[1] || '—'}
                     </td>
-                    <td className="py-2.5 px-4 text-slate-700 whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap truncate">
                       {r[2] || '—'}
                     </td>
-                    <td className="py-2.5 px-4 font-mono text-slate-500 tabular-nums">
+                    <td className="py-2.5 px-3 font-mono text-slate-500 tabular-nums whitespace-nowrap">
                       {r[3] || '—'}
                     </td>
-                    <td className="py-2.5 px-4 whitespace-nowrap">
+                    <td className="py-2.5 px-3 whitespace-nowrap truncate">
                       <span
                         className={`font-medium ${
                           r[4] === 'Ștergere'
@@ -184,10 +238,10 @@ export function HistoryView({ istoric }: HistoryViewProps) {
                         {r[4] || '—'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-slate-500 max-w-[260px] whitespace-normal break-words">
+                    <td className="py-2.5 px-3 text-slate-500 whitespace-normal break-words leading-snug">
                       {r[5] || '—'}
                     </td>
-                    <td className="py-2.5 px-4 text-slate-800 max-w-[260px] whitespace-normal break-words">
+                    <td className="py-2.5 px-3 text-slate-800 whitespace-normal break-words leading-snug">
                       {r[6] || '—'}
                     </td>
                   </tr>

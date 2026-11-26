@@ -49,6 +49,12 @@ export function TopBar({
           <Menu className="h-5 w-5" />
         </button>
         <div className="flex items-center gap-2 text-sm min-w-0">
+          <img
+            src="/logo-camion.png"
+            alt="Sigla Dispecerat"
+            referrerPolicy="no-referrer"
+            className="lg:hidden h-7 w-7 rounded-md object-cover shrink-0 ring-1 ring-slate-200"
+          />
           <span className="text-slate-400 hidden sm:inline whitespace-nowrap">
             Dispecerat
           </span>

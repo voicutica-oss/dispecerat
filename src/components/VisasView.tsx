@@ -1,7 +1,14 @@
 import { Edit3, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useMobileViewMode } from '../hooks/useMobileViewMode';
+import {
+  useResizableColumns,
+  type TableColSpec,
+} from '../hooks/useResizableColumns';
 import type { VisaRecord } from '../types/fleet';
-import { plainRo } from '../utils/roDates';
+import { plainRo, resolveVisaColHeaders } from '../utils/roDates';
+import { MobileViewToggle } from './MobileViewToggle';
+import { ResizableTh } from './ResizableTh';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface VisasViewProps {
@@ -11,6 +18,15 @@ interface VisasViewProps {
   onEditVisa: (visa: VisaRecord) => void;
 }
 
+const VISA_COLS: TableColSpec[] = [
+  { id: 'nr', defaultWidth: 64, minWidth: 46, maxWidth: 120 },
+  { id: 'sofer', defaultWidth: 210, minWidth: 110, maxWidth: 380 },
+  { id: 'document', defaultWidth: 185, minWidth: 100, maxWidth: 340 },
+  { id: 'data_exp', defaultWidth: 128, minWidth: 94, maxWidth: 220 },
+  { id: 'valabilitate', defaultWidth: 165, minWidth: 110, maxWidth: 320, flex: true },
+  { id: 'actiune', defaultWidth: 108, minWidth: 84, maxWidth: 160 },
+];
+
 export function VisasView({
   headers,
   visas,
@@ -19,11 +35,24 @@ export function VisasView({
 }: VisasViewProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'expired' | 'expiring' | 'valid'>('all');
+  const [mobileView, setMobileView] = useMobileViewMode('vize', 'cards');
 
-  const colHeaders = useMemo(() => {
-    const defaults = ['Nr.', 'Nume șofer', 'Document', 'Data expirare'];
-    return defaults.map((d, i) => (headers[i] && headers[i].trim() ? headers[i] : d));
-  }, [headers]);
+  const {
+    widths,
+    resizingColId,
+    getColWidth,
+    totalMinWidth,
+    hasCustomWidths,
+    resetWidths,
+    startResize,
+  } = useResizableColumns('vize', VISA_COLS);
+
+  const colHeaders = useMemo(
+    () => resolveVisaColHeaders(headers),
+    [headers]
+  );
+
+  const allHeaders = [...colHeaders, 'Valabilitate', 'Acțiune'];
 
   const filtered = useMemo(() => {
     const q = plainRo(search);
@@ -76,14 +105,17 @@ export function VisasView({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onAddVisa}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap self-start lg:self-auto"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          <span>Adaugă viză</span>
-        </button>
+        <div className="flex items-center justify-between lg:justify-end gap-2.5">
+          <MobileViewToggle mode={mobileView} onChange={setMobileView} />
+          <button
+            type="button"
+            onClick={onAddVisa}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Adaugă viză</span>
+          </button>
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -93,89 +125,114 @@ export function VisasView({
           </div>
         ) : (
           <>
-            <div className="md:hidden divide-y divide-slate-200">
-              {filtered.map((visa) => (
-                <div
-                  key={visa.rowIndex}
-                  onClick={() => onEditVisa(visa)}
-                  className="p-4 space-y-2 active:bg-slate-50 cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm text-slate-900 truncate">
-                        {visa.cells[1] || '—'}
+            {mobileView === 'cards' && (
+              <div className="md:hidden divide-y divide-slate-200">
+                {filtered.map((visa) => (
+                  <div
+                    key={visa.rowIndex}
+                    onClick={() => onEditVisa(visa)}
+                    className="p-4 space-y-2 active:bg-slate-50 cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm text-slate-900 truncate">
+                          {visa.cells[1] || '—'}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5 truncate">
+                          {visa.cells[2] || '—'}
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5 truncate">
-                        {visa.cells[2] || '—'}
+                      <div className="text-right shrink-0">
+                        <div className="font-mono text-xs font-medium text-slate-900 tabular-nums">
+                          {visa.cells[3] || '—'}
+                        </div>
+                        <div className="text-[11px] font-medium mt-0.5">
+                          {visa.status === 'expired' ? (
+                            <span className="text-red-600">
+                              Expirată ({Math.abs(visa.daysLeft || 0)} zile)
+                            </span>
+                          ) : visa.status === 'expiring' ? (
+                            <span className="text-amber-700">
+                              {visa.daysLeft === 0
+                                ? 'Expiră azi'
+                                : `Expiră în ${visa.daysLeft} zile`}
+                            </span>
+                          ) : visa.status === 'valid' ? (
+                            <span className="text-emerald-700">
+                              Valabilă ({visa.daysLeft} zile)
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Dată neidentificată</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="font-mono text-xs font-medium text-slate-900 tabular-nums">
-                        {visa.cells[3] || '—'}
-                      </div>
-                      <div className="text-[11px] font-medium mt-0.5">
-                        {visa.status === 'expired' ? (
-                          <span className="text-red-600">
-                            Expirată ({Math.abs(visa.daysLeft || 0)} zile)
-                          </span>
-                        ) : visa.status === 'expiring' ? (
-                          <span className="text-amber-700">
-                            {visa.daysLeft === 0
-                              ? 'Expiră azi'
-                              : `Expiră în ${visa.daysLeft} zile`}
-                          </span>
-                        ) : visa.status === 'valid' ? (
-                          <span className="text-emerald-700">
-                            Valabilă ({visa.daysLeft} zile)
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">Dată neidentificată</span>
-                        )}
-                      </div>
+                    <div className="pt-1 flex items-center justify-between text-xs">
+                      <span className="font-mono text-[11px] text-slate-400">
+                        Nr. {visa.cells[0] || visa.rowIndex}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditVisa(visa);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-md"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                        <span>Editează</span>
+                      </button>
                     </div>
                   </div>
-                  <div className="pt-1 flex items-center justify-between text-xs">
-                    <span className="font-mono text-[11px] text-slate-400">
-                      Nr. {visa.cells[0] || visa.rowIndex}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEditVisa(visa);
-                      }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-md"
-                    >
-                      <Edit3 className="h-3.5 w-3.5" />
-                      <span>Editează</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
-            <SyncedScrollTable className="hidden md:block">
-              <table className="w-full text-left border-collapse">
+            <SyncedScrollTable
+              className={mobileView === 'table' ? 'block' : 'hidden md:block'}
+              hasCustomWidths={hasCustomWidths}
+              onResetWidths={resetWidths}
+            >
+              <table
+                style={{ minWidth: `${totalMinWidth}px` }}
+                className="w-full table-fixed text-left border-collapse"
+              >
+                <colgroup>
+                  {VISA_COLS.map((col) => {
+                    const useFlex = col.flex && widths[col.id] === undefined;
+                    return (
+                      <col
+                        key={col.id}
+                        style={
+                          useFlex
+                            ? { minWidth: `${col.defaultWidth}px` }
+                            : { width: `${getColWidth(col)}px` }
+                        }
+                      />
+                    );
+                  })}
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      {colHeaders[0]}
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      {colHeaders[1]}
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      {colHeaders[2]}
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      {colHeaders[3]}
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Valabilitate
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 text-right whitespace-nowrap">
-                      Acțiune
-                    </th>
+                    {VISA_COLS.map((col, i) => (
+                      <ResizableTh
+                        key={col.id}
+                        colId={col.id}
+                        width={getColWidth(col)}
+                        minWidth={col.minWidth}
+                        maxWidth={col.maxWidth}
+                        isResizing={resizingColId === col.id}
+                        onStartResize={startResize}
+                        title={allHeaders[i]}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 ${
+                          i === 0
+                            ? 'left-0 z-30 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)]'
+                            : 'z-20'
+                        } ${i === VISA_COLS.length - 1 ? 'text-right' : ''}`}
+                      >
+                        {allHeaders[i]}
+                      </ResizableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -185,19 +242,19 @@ export function VisasView({
                       onClick={() => onEditVisa(visa)}
                       className="group hover:bg-slate-50 cursor-pointer"
                     >
-                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] py-2.5 px-3 font-mono text-xs text-slate-500 tabular-nums whitespace-nowrap truncate">
                         {visa.cells[0] || visa.rowIndex}
                       </td>
-                      <td className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-medium text-slate-900 whitespace-normal break-words leading-snug">
                         {visa.cells[1] || '—'}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-700 whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-normal break-words leading-snug">
                         {visa.cells[2] || '—'}
                       </td>
-                      <td className="py-2.5 px-4 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                      <td className="py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums truncate">
                         {visa.cells[3] || '—'}
                       </td>
-                      <td className="py-2.5 px-4 text-xs font-medium whitespace-nowrap tabular-nums">
+                      <td className="py-2.5 px-3 text-xs font-medium whitespace-nowrap tabular-nums truncate">
                         {visa.status === 'expired' ? (
                           <span className="text-red-600">
                             Expirată ({Math.abs(visa.daysLeft || 0)} zile)
@@ -216,7 +273,7 @@ export function VisasView({
                           <span className="text-slate-400">Dată neidentificată</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
                         <button
                           type="button"
                           onClick={(e) => {

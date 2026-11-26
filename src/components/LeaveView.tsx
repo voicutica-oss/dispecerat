@@ -1,5 +1,9 @@
 import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import {
+  useResizableColumns,
+  type TableColSpec,
+} from '../hooks/useResizableColumns';
 import type { LeaveRecord, LeaveType, TripRecord } from '../types/fleet';
 import {
   isLeaveMatrix,
@@ -9,6 +13,7 @@ import {
   plainRo,
   splitDrivers,
 } from '../utils/roDates';
+import { ResizableTh } from './ResizableTh';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface LeaveViewProps {
@@ -33,6 +38,22 @@ const MONTHS_RO = [
   'Octombrie',
   'Noiembrie',
   'Decembrie',
+];
+
+const LEAVE_TABLE_COLS: TableColSpec[] = [
+  { id: 'sofer', defaultWidth: 124, minWidth: 86, maxWidth: 260 },
+  { id: 'perioada', defaultWidth: 210, minWidth: 130, maxWidth: 340 },
+  { id: 'durata', defaultWidth: 86, minWidth: 64, maxWidth: 160 },
+  { id: 'total', defaultWidth: 130, minWidth: 84, maxWidth: 240 },
+  { id: 'status', defaultWidth: 205, minWidth: 120, maxWidth: 380, flex: true },
+];
+
+const LEAVE_TABLE_HEADERS = [
+  'Șofer',
+  'Perioadă & Tip',
+  'Durată',
+  'Total an șofer',
+  'Status / Suprapuneri',
 ];
 
 export function LeaveView({
@@ -169,7 +190,10 @@ export function LeaveView({
   }, [hasMatrix, rawConcediu, search]);
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const dayNumbers = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const dayNumbers = useMemo(
+    () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    [daysInMonth]
+  );
 
   const uniqueDriversForTimeline = useMemo(() => {
     const map = new Map<string, { nume: string; periods: LeaveRecord[] }>();
@@ -181,6 +205,35 @@ export function LeaveView({
     });
     return Array.from(map.values()).sort((a, b) => a.nume.localeCompare(b.nume));
   }, [filtered]);
+
+  const timelineCols = useMemo<TableColSpec[]>(
+    () => [
+      { id: 'sofer', defaultWidth: 124, minWidth: 86, maxWidth: 260 },
+      ...dayNumbers.map((d) => ({
+        id: `d-${d}`,
+        defaultWidth: 32,
+        minWidth: 26,
+        maxWidth: 64,
+      })),
+    ],
+    [dayNumbers]
+  );
+
+  const matrixCols = useMemo<TableColSpec[]>(
+    () =>
+      matrixHeaders.map((_, i) =>
+        i === 0
+          ? { id: 'col-0', defaultWidth: 124, minWidth: 86, maxWidth: 260 }
+          : i >= 1 && i <= 12
+            ? { id: `col-${i}`, defaultWidth: 58, minWidth: 42, maxWidth: 120 }
+            : { id: `col-${i}`, defaultWidth: 74, minWidth: 52, maxWidth: 140 }
+      ),
+    [matrixHeaders]
+  );
+
+  const tableResize = useResizableColumns('concedii_table', LEAVE_TABLE_COLS);
+  const timelineResize = useResizableColumns('concedii_timeline', timelineCols);
+  const matrixResize = useResizableColumns('concedii_matrix', matrixCols);
 
   const shiftMonth = (delta: number) => {
     const next = new Date(year, month + delta, 1);
@@ -357,25 +410,51 @@ export function LeaveView({
               )}
             </div>
           ) : (
-            <SyncedScrollTable>
-              <table className="w-full text-left border-collapse">
+            <SyncedScrollTable
+              hasCustomWidths={tableResize.hasCustomWidths}
+              onResetWidths={tableResize.resetWidths}
+            >
+              <table
+                style={{ minWidth: `${tableResize.totalMinWidth}px` }}
+                className="w-full table-fixed text-left border-collapse"
+              >
+                <colgroup>
+                  {LEAVE_TABLE_COLS.map((col) => {
+                    const useFlex =
+                      col.flex && tableResize.widths[col.id] === undefined;
+                    return (
+                      <col
+                        key={col.id}
+                        style={
+                          useFlex
+                            ? { minWidth: `${col.defaultWidth}px` }
+                            : { width: `${tableResize.getColWidth(col)}px` }
+                        }
+                      />
+                    );
+                  })}
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Șofer
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Perioadă & Tip
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 text-right whitespace-nowrap">
-                      Durată
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 text-right whitespace-nowrap">
-                      Total an șofer
-                    </th>
-                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
-                      Status / Suprapuneri
-                    </th>
+                    {LEAVE_TABLE_COLS.map((col, i) => (
+                      <ResizableTh
+                        key={col.id}
+                        colId={col.id}
+                        width={tableResize.getColWidth(col)}
+                        minWidth={col.minWidth}
+                        maxWidth={col.maxWidth}
+                        isResizing={tableResize.resizingColId === col.id}
+                        onStartResize={tableResize.startResize}
+                        title={LEAVE_TABLE_HEADERS[i]}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 ${
+                          i === 0
+                            ? 'left-0 z-30 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)]'
+                            : 'z-20'
+                        } ${i === 2 || i === 3 ? 'text-right' : ''}`}
+                      >
+                        {LEAVE_TABLE_HEADERS[i]}
+                      </ResizableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -409,10 +488,10 @@ export function LeaveView({
                         title="Apasă pentru a modifica luna acestui șofer"
                         className="group hover:bg-slate-50 cursor-pointer"
                       >
-                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] py-2.5 px-3 text-xs font-medium text-slate-900 whitespace-normal break-words leading-snug">
                           {l.nume}
                         </td>
-                        <td className="py-2.5 px-4 whitespace-nowrap">
+                        <td className="py-2.5 px-3 whitespace-nowrap truncate">
                           <div className="inline-flex items-center gap-2">
                             <span
                               className={`inline-block px-1.5 py-0.5 font-mono text-[11px] font-semibold border rounded ${meta.badgeClass}`}
@@ -427,20 +506,20 @@ export function LeaveView({
                             </span>
                           </div>
                         </td>
-                        <td className="py-2.5 px-4 text-right font-mono text-xs text-slate-700 tabular-nums">
+                        <td className="py-2.5 px-3 text-right font-mono text-xs text-slate-700 tabular-nums whitespace-nowrap">
                           {l.daysCount} {l.daysCount === 1 ? 'zi' : 'zile'}
                         </td>
-                        <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
                           <div className="font-mono text-xs text-slate-700 tabular-nums">
                             {totalAn} zile
                           </div>
                           {breakdown && (
-                            <div className="font-mono text-[10px] text-slate-400 tabular-nums">
+                            <div className="font-mono text-[10px] text-slate-400 tabular-nums truncate">
                               {breakdown}
                             </div>
                           )}
                         </td>
-                        <td className="py-2.5 px-4 text-xs whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-xs whitespace-nowrap truncate">
                           {conflict ? (
                             <span className="text-red-600 font-medium">
                               Conflict cursă activă ({activeTrip.dataDesc})
@@ -472,21 +551,42 @@ export function LeaveView({
               Niciun șofer găsit în tabelul anual de concedii.
             </div>
           ) : (
-            <SyncedScrollTable>
-              <table className="w-full text-left border-collapse">
+            <SyncedScrollTable
+              hasCustomWidths={matrixResize.hasCustomWidths}
+              onResetWidths={matrixResize.resetWidths}
+            >
+              <table
+                style={{ width: `${matrixResize.totalMinWidth}px`, minWidth: '100%' }}
+                className="table-fixed text-left border-collapse"
+              >
+                <colgroup>
+                  {matrixCols.map((col) => (
+                    <col
+                      key={col.id}
+                      style={{ width: `${matrixResize.getColWidth(col)}px` }}
+                    />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    {matrixHeaders.map((h, i) => (
-                      <th
-                        key={i}
-                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 whitespace-nowrap ${
+                    {matrixCols.map((col, i) => (
+                      <ResizableTh
+                        key={col.id}
+                        colId={col.id}
+                        width={matrixResize.getColWidth(col)}
+                        minWidth={col.minWidth}
+                        maxWidth={col.maxWidth}
+                        isResizing={matrixResize.resizingColId === col.id}
+                        onStartResize={matrixResize.startResize}
+                        title={matrixHeaders[i] || `Col ${i + 1}`}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-2.5 ${
                           i === 0
-                            ? 'left-0 z-30 border-r border-slate-200'
+                            ? 'left-0 z-30 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)]'
                             : 'z-20'
                         }`}
                       >
-                        {h || `Col ${i + 1}`}
-                      </th>
+                        {matrixHeaders[i] || `Col ${i + 1}`}
+                      </ResizableTh>
                     ))}
                   </tr>
                 </thead>
@@ -523,14 +623,14 @@ export function LeaveView({
                                     ? `Total ${extraType} calculat`
                                     : `Adaugă concediu pentru ${driverName}`
                               }
-                              className={`py-2 px-3 whitespace-nowrap ${
+                              className={`py-2 px-2.5 ${
                                 colIdx === 0
-                                  ? 'font-medium text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 cursor-pointer hover:text-blue-700'
+                                  ? 'font-medium text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] cursor-pointer hover:text-blue-700 whitespace-normal break-words leading-snug'
                                   : isMonthCol
-                                    ? `font-mono tabular-nums cursor-pointer hover:bg-blue-50 ${val ? 'text-slate-900 font-medium' : 'text-slate-300'}`
+                                    ? `font-mono tabular-nums cursor-pointer hover:bg-blue-50 whitespace-nowrap truncate ${val ? 'text-slate-900 font-medium' : 'text-slate-300'}`
                                     : val && val !== '0'
-                                      ? 'font-mono text-slate-800 font-medium tabular-nums'
-                                      : 'font-mono text-slate-300 tabular-nums'
+                                      ? 'font-mono text-slate-800 font-medium tabular-nums whitespace-nowrap truncate'
+                                      : 'font-mono text-slate-300 tabular-nums whitespace-nowrap truncate'
                               }`}
                             >
                               {val || '—'}
@@ -552,21 +652,53 @@ export function LeaveView({
               Niciun șofer cu concediu de afișat.
             </div>
           ) : (
-            <SyncedScrollTable>
-              <table className="w-full text-left border-collapse">
+            <SyncedScrollTable
+              hasCustomWidths={timelineResize.hasCustomWidths}
+              onResetWidths={timelineResize.resetWidths}
+            >
+              <table
+                style={{ width: `${timelineResize.totalMinWidth}px`, minWidth: '100%' }}
+                className="table-fixed text-left border-collapse"
+              >
+                <colgroup>
+                  {timelineCols.map((col) => (
+                    <col
+                      key={col.id}
+                      style={{ width: `${timelineResize.getColWidth(col)}px` }}
+                    />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2 px-4 min-w-[180px]">
+                    <ResizableTh
+                      colId="sofer"
+                      width={timelineResize.getColWidth(timelineCols[0])}
+                      minWidth={timelineCols[0].minWidth}
+                      maxWidth={timelineCols[0].maxWidth}
+                      isResizing={timelineResize.resizingColId === 'sofer'}
+                      onStartResize={timelineResize.startResize}
+                      title="Șofer"
+                      className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.08)] py-2 px-3"
+                    >
                       Șofer
-                    </th>
-                    {dayNumbers.map((d) => (
-                      <th
-                        key={d}
-                        className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2 px-1 text-center font-mono text-[11px] min-w-[30px] tabular-nums"
-                      >
-                        {d}
-                      </th>
-                    ))}
+                    </ResizableTh>
+                    {dayNumbers.map((d, idx) => {
+                      const col = timelineCols[idx + 1];
+                      return (
+                        <ResizableTh
+                          key={d}
+                          colId={col.id}
+                          width={timelineResize.getColWidth(col)}
+                          minWidth={col.minWidth}
+                          maxWidth={col.maxWidth}
+                          isResizing={timelineResize.resizingColId === col.id}
+                          onStartResize={timelineResize.startResize}
+                          className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2 px-1 text-center font-mono text-[11px] tabular-nums"
+                        >
+                          {d}
+                        </ResizableTh>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
@@ -574,7 +706,7 @@ export function LeaveView({
                     <tr key={drv.nume} className="group hover:bg-slate-50">
                       <td
                         onClick={() => onAddLeave(drv.nume, month)}
-                        className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 cursor-pointer hover:text-blue-700"
+                        className="py-2 px-3 font-medium text-slate-900 whitespace-normal break-words leading-snug sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.06)] cursor-pointer hover:text-blue-700"
                       >
                         {drv.nume}
                       </td>

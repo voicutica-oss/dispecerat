@@ -22,6 +22,9 @@ interface SidebarProps {
   counts: {
     activeTrips: number;
     fleetCount: number;
+    fleetTrucks: number;
+    fleetTrailers: number;
+    fleetOnlyCheckedBifa: boolean;
     freeTrailers: number;
     visaAlerts: number;
     activeLeaves: number;
@@ -61,10 +64,18 @@ export function Sidebar({
   const navContent = (
     <div className="flex h-full flex-col justify-between bg-white border-r border-slate-200">
       <div>
-        <div className="flex h-14 items-center justify-between px-5 border-b border-slate-200">
-          <span className="font-display text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
-            Dispecerat Transport
-          </span>
+        <div className="flex h-14 items-center justify-between px-4 border-b border-slate-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img
+              src="/logo-camion.png"
+              alt="Sigla Dispecerat Transport"
+              referrerPolicy="no-referrer"
+              className="h-8 w-8 rounded-lg object-cover shrink-0 shadow-xs ring-1 ring-slate-200"
+            />
+            <span className="font-display text-base font-bold tracking-tight text-slate-900 whitespace-nowrap truncate">
+              Dispecerat Transport
+            </span>
+          </div>
           <button
             type="button"
             onClick={onCloseMobile}
@@ -79,7 +90,9 @@ export function Sidebar({
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const count = item.countKey ? counts[item.countKey] : null;
+            const isFleet = item.id === 'flota';
+            const rawCount = item.countKey ? counts[item.countKey] : null;
+            const count = typeof rawCount === 'number' ? rawCount : null;
             return (
               <button
                 key={item.id}
@@ -88,7 +101,14 @@ export function Sidebar({
                   onSelectTab(item.id);
                   onCloseMobile();
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                title={
+                  isFleet
+                    ? `${counts.fleetTrucks} capete · ${counts.fleetTrailers} remorci (${
+                        counts.fleetOnlyCheckedBifa ? 'doar cu bifă col. K' : 'toată flota'
+                      })`
+                    : undefined
+                }
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
                   isActive
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -102,14 +122,25 @@ export function Sidebar({
                   />
                   <span className="truncate">{item.label}</span>
                 </span>
-                {count !== null && count > 0 && (
+                {isFleet ? (
                   <span
-                    className={`font-mono text-xs tabular-nums ${
-                      isActive ? 'text-slate-300' : 'text-slate-400'
+                    className={`font-mono text-xs tabular-nums shrink-0 ${
+                      isActive ? 'text-slate-300' : 'text-slate-500'
                     }`}
                   >
-                    {count}
+                    {counts.fleetTrucks}/{counts.fleetTrailers}
                   </span>
+                ) : (
+                  count !== null &&
+                  count > 0 && (
+                    <span
+                      className={`font-mono text-xs tabular-nums shrink-0 ${
+                        isActive ? 'text-slate-300' : 'text-slate-400'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )
                 )}
               </button>
             );
@@ -145,7 +176,7 @@ export function Sidebar({
 
   return (
     <>
-      <aside className="hidden lg:block w-[250px] shrink-0 h-screen sticky top-0">
+      <aside className="hidden lg:block w-[274px] shrink-0 h-screen sticky top-0">
         {navContent}
       </aside>
 
@@ -156,7 +187,7 @@ export function Sidebar({
             onClick={onCloseMobile}
             aria-hidden="true"
           />
-          <aside className="relative z-10 w-[260px] max-w-[80vw] h-full">
+          <aside className="relative z-10 w-[280px] max-w-[85vw] h-full">
             {navContent}
           </aside>
         </div>

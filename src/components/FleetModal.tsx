@@ -1,6 +1,6 @@
-import { X } from 'lucide-react';
+import { Flame, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { FLOTA_DEFAULT_HEADERS } from '../utils/roDates';
+import { FLOTA_DEFAULT_HEADERS, isSheetCheckboxTrue } from '../utils/roDates';
 
 interface FleetModalProps {
   open: boolean;
@@ -17,7 +17,7 @@ export function FleetModal({
   flotaHeaders,
   onSave,
 }: FleetModalProps) {
-  const [cells, setCells] = useState<string[]>(Array(8).fill(''));
+  const [cells, setCells] = useState<string[]>(Array(12).fill(''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,10 +25,15 @@ export function FleetModal({
     if (!open) return;
     setError(null);
     if (row) {
-      const padded = Array.from({ length: 8 }, (_, idx) => String(row.cells[idx] || ''));
+      const padded = Array.from({ length: 12 }, (_, idx) =>
+        String(row.cells[idx] || '')
+      );
       setCells(padded);
     } else {
-      setCells(Array(8).fill(''));
+      const fresh = Array(12).fill('');
+      fresh[10] = 'TRUE';
+      fresh[11] = 'FALSE';
+      setCells(fresh);
     }
   }, [open, row]);
 
@@ -37,6 +42,9 @@ export function FleetModal({
   const labels = FLOTA_DEFAULT_HEADERS.map((def, idx) =>
     flotaHeaders[idx] && flotaHeaders[idx].trim() ? flotaHeaders[idx].trim() : def
   );
+
+  const hasBifaK = isSheetCheckboxTrue(cells[10]);
+  const hasAdrL = isSheetCheckboxTrue(cells[11]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +109,41 @@ export function FleetModal({
                 />
               </div>
             ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <label className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:bg-slate-100">
+              <input
+                type="checkbox"
+                checked={hasBifaK}
+                onChange={(e) => {
+                  const next = [...cells];
+                  next[10] = e.target.checked ? 'TRUE' : 'FALSE';
+                  setCells(next);
+                }}
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+              />
+              <span className="text-xs font-medium text-slate-800">
+                Activ în Flotă (col. K)
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2.5 p-3 rounded-lg border border-orange-200 bg-orange-50/60 cursor-pointer hover:bg-orange-50">
+              <input
+                type="checkbox"
+                checked={hasAdrL}
+                onChange={(e) => {
+                  const next = [...cells];
+                  next[11] = e.target.checked ? 'TRUE' : 'FALSE';
+                  setCells(next);
+                }}
+                className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 h-4 w-4"
+              />
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-orange-900">
+                <Flame className="h-3.5 w-3.5 text-orange-600" />
+                Șofer cu ADR (col. L)
+              </span>
+            </label>
           </div>
 
           <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">

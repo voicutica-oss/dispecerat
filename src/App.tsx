@@ -30,6 +30,7 @@ import type {
 import {
   computeFleetAutoFill,
   computeFreeTrailers,
+  countFleetUnits,
   countLeaveDaysByType,
   diffDaysFromToday,
   fmtRoDate,
@@ -65,7 +66,7 @@ const MONTHS_RO = [
 
 const STORAGE_KEY = 'dispecerat_gas_config_v1';
 const DATA_CACHE_KEY = 'dispecerat_cached_data_v1';
-const REFRESH_SEC = 5;
+const REFRESH_SEC = 25;
 
 const DEFAULT_CONFIG: GasConfig = {
   scriptUrl: '',
@@ -131,6 +132,23 @@ export default function App() {
   );
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [fleetOnlyCheckedBifa, setFleetOnlyCheckedBifa] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('dispecerat_fleet_bifa_v1');
+      return saved === null ? true : saved === '1';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleFleetBifaChange = useCallback((checked: boolean) => {
+    setFleetOnlyCheckedBifa(checked);
+    try {
+      localStorage.setItem('dispecerat_fleet_bifa_v1', checked ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -175,9 +193,11 @@ export default function App() {
   );
 
   const lastSigRef = useRef('');
+  const lastSyncAtMsRef = useRef(0);
   const pendingSavesRef = useRef(0);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const syncTimerRef = useRef<number | null>(null);
+  const cacheTimerRef = useRef<number | null>(null);
   const recentOptimisticLogsRef = useRef<
     { row: string; tab: string; entry: string[]; createdAt: number }[]
   >([]);
@@ -192,19 +212,32 @@ export default function App() {
     }
   };
 
-  const applyLocalData = useCallback((updater: (prev: GasPayload) => GasPayload) => {
-    setData((prev) => {
-      const next = updater(prev);
-      const sig = JSON.stringify(next);
-      lastSigRef.current = sig;
+  const scheduleCachePersist = useCallback((snapshot: GasPayload) => {
+    if (cacheTimerRef.current) {
+      window.clearTimeout(cacheTimerRef.current);
+    }
+    cacheTimerRef.current = window.setTimeout(() => {
+      cacheTimerRef.current = null;
       try {
+        const sig = JSON.stringify(snapshot);
+        lastSigRef.current = sig;
         localStorage.setItem(DATA_CACHE_KEY, sig);
       } catch {
         // ignore quota errors
       }
-      return next;
-    });
+    }, 150);
   }, []);
+
+  const applyLocalData = useCallback(
+    (updater: (prev: GasPayload) => GasPayload) => {
+      setData((prev) => {
+        const next = updater(prev);
+        scheduleCachePersist(next);
+        return next;
+      });
+    },
+    [scheduleCachePersist]
+  );
 
   const performSync = useCallback(
     async (cfg: GasConfig, silent = false) => {
@@ -229,7 +262,7 @@ export default function App() {
       setSyncError(null);
       try {
         const fresh = await syncFromGas(cfg.scriptUrl, cfg.key);
-        setScriptOutdated(Number(fresh.scriptVersion || 0) < 3.0);
+        setScriptOutdated(Number(fresh.scriptVersion || 0) < 3.2);
         if (pendingSavesRef.current > 0) return;
 
         const now = Date.now();
@@ -278,6 +311,7 @@ export default function App() {
             // ignore quota errors
           }
         }
+        lastSyncAtMsRef.current = Date.now();
         setLastSyncedAt(
           new Date().toLocaleTimeString('ro-RO', {
             hour: '2-digit',
@@ -338,7 +372,7 @@ export default function App() {
             if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
             syncTimerRef.current = window.setTimeout(() => {
               performSync(cfg, true);
-            }, 350);
+            }, 1000);
           }
         }
       });
@@ -351,6 +385,9 @@ export default function App() {
       if (syncTimerRef.current) {
         window.clearTimeout(syncTimerRef.current);
       }
+      if (cacheTimerRef.current) {
+        window.clearTimeout(cacheTimerRef.current);
+      }
     };
   }, []);
 
@@ -360,7 +397,7 @@ export default function App() {
     }
   }, [config.mode, config.scriptUrl, performSync]);
 
-  // 15-second background polling when online, live, and no modal is open
+  // 25-second background polling when online, live, and no modal is open
   useEffect(() => {
     if (config.mode !== 'live' || !config.scriptUrl) return;
     const id = window.setInterval(() => {
@@ -377,7 +414,12 @@ export default function App() {
     }, REFRESH_SEC * 1000);
 
     const onVisibilityOrFocus = () => {
-      if (!document.hidden && isOnline) {
+      if (
+        !document.hidden &&
+        isOnline &&
+        pendingSavesRef.current === 0 &&
+        Date.now() - lastSyncAtMsRef.current >= 10000
+      ) {
         performSync(config, true);
       }
     };
@@ -406,12 +448,18 @@ export default function App() {
     [data.flota, data.curse, data.istoricRemorci]
   );
 
+  const fleetUnits = useMemo(
+    () => countFleetUnits(data.flota, fleetOnlyCheckedBifa),
+    [data.flota, fleetOnlyCheckedBifa]
+  );
+
   const counts = useMemo(
     () => ({
       activeTrips: trips.filter((t) => t.isActive).length,
-      fleetCount: data.flota
-        .slice(1)
-        .filter((r) => Array.isArray(r) && r.some((c) => String(c || '').trim() !== '')).length,
+      fleetCount: fleetUnits.rows,
+      fleetTrucks: fleetUnits.trucks,
+      fleetTrailers: fleetUnits.trailers,
+      fleetOnlyCheckedBifa,
       freeTrailers: freeTrailers.length,
       visaAlerts: visas.filter(
         (v) => v.status === 'expired' || v.status === 'expiring'
@@ -427,7 +475,16 @@ export default function App() {
           !(r[0] === 'Data și ora' && r[1] === 'Utilizator')
       ).length,
     }),
-    [trips, data.flota, freeTrailers, visas, leaves, data.istoricRemorci, data.istoric]
+    [
+      trips,
+      fleetUnits,
+      fleetOnlyCheckedBifa,
+      freeTrailers,
+      visas,
+      leaves,
+      data.istoricRemorci,
+      data.istoric,
+    ]
   );
 
   const sendLocalAlertsIfPermitted = useCallback(async () => {
@@ -562,14 +619,14 @@ export default function App() {
       },
       data.flota
     );
-    const values15 = Array.from({ length: 15 }, (_, idx) =>
+    const values16 = Array.from({ length: 16 }, (_, idx) =>
       String(payload.values[idx] || '').trim()
     );
-    if (!values15[8]) values15[8] = autoFill.telefon;
-    if (!values15[9]) values15[9] = autoFill.rezerva;
-    if (!values15[10]) values15[10] = autoFill.tipAuto;
-    if (!values15[11]) values15[11] = autoFill.anFabricatie;
-    if (!values15[14]) values15[14] = autoFill.camioaneOriginal;
+    if (!values16[8]) values16[8] = autoFill.telefon;
+    if (!values16[9]) values16[9] = autoFill.rezerva;
+    if (!values16[10]) values16[10] = autoFill.tipAuto;
+    if (!values16[11]) values16[11] = autoFill.anFabricatie;
+    if (!values16[14]) values16[14] = autoFill.camioaneOriginal;
 
     applyLocalData((prev) => {
       if (pendingSavesRef.current === 0) {
@@ -577,7 +634,7 @@ export default function App() {
           prev.istoric.slice(-2)
         );
       }
-      const nextCurse = prev.curse.map((r) => [...r]);
+      const nextCurse = [...prev.curse];
       const rowNum = payload.row || nextCurse.length + 1;
 
       let oldRowCells: string[] = [];
@@ -587,9 +644,9 @@ export default function App() {
         oldRowCells = [...nextCurse[payload.row - 1]];
         oldNr = String(oldRowCells[1] || '');
         before = oldRowCells.join(' | ');
-        nextCurse[payload.row - 1] = [...values15];
+        nextCurse[payload.row - 1] = [...values16];
       } else {
-        nextCurse.push([...values15]);
+        nextCurse.push([...values16]);
       }
 
       const logRow = [
@@ -599,7 +656,7 @@ export default function App() {
         String(rowNum),
         payload.row ? 'Modificare' : 'Adăugare',
         before,
-        values15.join(' | '),
+        values16.join(' | '),
       ];
 
       const extraLogs: string[][] = [logRow];
@@ -611,13 +668,14 @@ export default function App() {
       });
 
       const oldRemRaw = (oldNr.split('/')[1] || '').trim();
-      const newRemRaw = (String(values15[1] || '').split('/')[1] || '').trim();
+      const newRemRaw = (String(values16[1] || '').split('/')[1] || '').trim();
       const oldRem = !oldRemRaw || /^schimb/i.test(oldRemRaw) ? '' : oldRemRaw;
       const newRem = !newRemRaw || /^schimb/i.test(newRemRaw) ? '' : newRemRaw;
-      const nextIstoricRemorci = (prev.istoricRemorci || []).map((r) => [...r]);
+      let nextIstoricRemorci = prev.istoricRemorci || [];
 
       if ((oldRem || newRem) && oldRem.toUpperCase() !== newRem.toUpperCase()) {
-        const swapLoc = payload.loc || values15[4] || '';
+        nextIstoricRemorci = nextIstoricRemorci.map((r) => [...r]);
+        const swapLoc = payload.loc || values16[4] || '';
         const swapLog = [
           nowStr,
           userName,
@@ -625,7 +683,7 @@ export default function App() {
           String(rowNum),
           'Schimb remorcă',
           oldNr,
-          swapLoc ? `${values15[1]} (${swapLoc})` : values15[1],
+          swapLoc ? `${values16[1]} (${swapLoc})` : values16[1],
         ];
         extraLogs.push(swapLog);
         recentOptimisticLogsRef.current.push({
@@ -636,7 +694,7 @@ export default function App() {
         });
 
         const camNew =
-          (String(values15[1] || '').split('/')[0] || '').trim() ||
+          (String(values16[1] || '').split('/')[0] || '').trim() ||
           (oldNr.split('/')[0] || '').trim();
         const todayStr = fmtRoDate(todayRo());
         let maxNr = 0;
@@ -653,11 +711,11 @@ export default function App() {
             ) {
               while (nextIstoricRemorci[i].length < 17) nextIstoricRemorci[i].push('');
               nextIstoricRemorci[i][11] = camNew;
-              nextIstoricRemorci[i][12] = values15[7] || '';
+              nextIstoricRemorci[i][12] = values16[7] || '';
               nextIstoricRemorci[i][13] = todayStr;
-              nextIstoricRemorci[i][14] = values15[3] || '';
-              nextIstoricRemorci[i][15] = values15[4] || '';
-              nextIstoricRemorci[i][16] = values15[2] || '';
+              nextIstoricRemorci[i][14] = values16[3] || '';
+              nextIstoricRemorci[i][15] = values16[4] || '';
+              nextIstoricRemorci[i][16] = values16[2] || '';
               matchedPrev = true;
               break;
             }
@@ -676,11 +734,11 @@ export default function App() {
               '',
               '',
               camNew,
-              values15[7] || '',
+              values16[7] || '',
               todayStr,
-              values15[3] || '',
-              values15[4] || '',
-              values15[2] || '',
+              values16[3] || '',
+              values16[4] || '',
+              values16[2] || '',
             ]);
           }
         }
@@ -696,7 +754,7 @@ export default function App() {
             oldRowCells[3] || '',
             oldRowCells[4] || '',
             oldRowCells[2] || '',
-            oldRowCells[7] || values15[7] || '',
+            oldRowCells[7] || values16[7] || '',
             '',
             '',
             '',
@@ -724,7 +782,7 @@ export default function App() {
         user: userName,
         kind: 'curse',
         row: payload.row,
-        values: values15,
+        values: values16,
         loc: payload.loc || '',
       });
     }
@@ -735,14 +793,19 @@ export default function App() {
     const nowStr = fmtRoDateTime(new Date());
 
     applyLocalData((prev) => {
-      const nextFlota = prev.flota.map((r) => [...r]);
+      if (pendingSavesRef.current === 0) {
+        preSaveServerLogSigRef.current = JSON.stringify(
+          prev.istoric.slice(-2)
+        );
+      }
+      const nextFlota = [...prev.flota];
       const rowNum = payload.row || nextFlota.length + 1;
       let before = '';
       if (payload.row && payload.row - 1 < nextFlota.length) {
         before = nextFlota[payload.row - 1].join(' | ');
-        nextFlota[payload.row - 1] = payload.values;
+        nextFlota[payload.row - 1] = [...payload.values];
       } else {
-        nextFlota.push(payload.values);
+        nextFlota.push([...payload.values]);
       }
       const logRow = [
         nowStr,
@@ -753,6 +816,12 @@ export default function App() {
         before,
         payload.values.join(' | '),
       ];
+      recentOptimisticLogsRef.current.push({
+        row: String(rowNum),
+        tab: 'flota',
+        entry: logRow,
+        createdAt: Date.now(),
+      });
       return {
         ...prev,
         flota: nextFlota,
@@ -761,18 +830,13 @@ export default function App() {
     });
 
     if (config.mode === 'live' && config.scriptUrl) {
-      try {
-        await mutateGas(config.scriptUrl, {
-          key: config.key,
-          user: userName,
-          kind: 'flota',
-          row: payload.row,
-          values: payload.values,
-        });
-        performSync(config, true);
-      } catch (err: unknown) {
-        setSyncError(err instanceof Error ? err.message : 'Eroare la salvarea flotei.');
-      }
+      enqueueLiveMutation(config, {
+        key: config.key,
+        user: userName,
+        kind: 'flota',
+        row: payload.row,
+        values: payload.values,
+      });
     }
   };
 
@@ -789,7 +853,7 @@ export default function App() {
           prev.istoric.slice(-2)
         );
       }
-      const nextVize = prev.vize.map((r) => [...r]);
+      const nextVize = [...prev.vize];
       const rowNum = payload.row || nextVize.length + 1;
       let before = '';
       if (payload.row && payload.row - 1 < nextVize.length) {
@@ -859,7 +923,7 @@ export default function App() {
         );
       }
 
-      let nextConcediu = prev.concediu.map((r) => [...r]);
+      let nextConcediu = [...prev.concediu];
       let rowNum = nextConcediu.length + 1;
       let beforeCell = '';
 
@@ -912,7 +976,8 @@ export default function App() {
           rowIdx = nextConcediu.length - 1;
         }
         rowNum = rowIdx + 1;
-        const targetRow = nextConcediu[rowIdx];
+        const targetRow = [...nextConcediu[rowIdx]];
+        nextConcediu[rowIdx] = targetRow;
         while (targetRow.length < colLen) targetRow.push('');
 
         const colIdx = monthCols[payload.monthIdx] ?? payload.monthIdx + 1;
@@ -1027,7 +1092,7 @@ export default function App() {
         // ignore
       }
       setData(fresh);
-      setScriptOutdated(Number(fresh.scriptVersion || 0) < 2.6);
+      setScriptOutdated(Number(fresh.scriptVersion || 0) < 3.2);
       setSyncError(null);
       setLastSyncedAt(
         new Date().toLocaleTimeString('ro-RO', {
@@ -1245,6 +1310,8 @@ export default function App() {
                   freeTrailers={freeTrailers}
                   trips={trips}
                   leaves={leaves}
+                  onlyCheckedBifa={fleetOnlyCheckedBifa}
+                  onOnlyCheckedBifaChange={handleFleetBifaChange}
                   onSaveFleet={handleSaveFleet}
                 />
               )}
@@ -1254,7 +1321,11 @@ export default function App() {
               )}
 
               {activeTab === 'zile_curse' && (
-                <ZileCurseView zileCurse={data.zileCurse || []} />
+                <ZileCurseView
+                  zileCurse={data.zileCurse || []}
+                  trips={trips}
+                  flota={data.flota}
+                />
               )}
 
               {activeTab === 'vize' && (

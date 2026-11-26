@@ -1,9 +1,12 @@
-import { AlertCircle, X } from 'lucide-react';
+import { AlertCircle, Flame, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { LeaveRecord, TripRecord } from '../types/fleet';
 import {
+  buildAdrDriversSet,
   computeFleetAutoFill,
+  computeTripDays,
   fmtRoDate,
+  hasDriverAdr,
   isFlotaSwapTag,
   isoToRoDate,
   normRemKey,
@@ -65,11 +68,14 @@ export function TripModal({
   const [perioadaEstimata, setPerioadaEstimata] = useState('');
   const [garajDin, setGarajDin] = useState('');
   const [camioaneOriginal, setCamioaneOriginal] = useState('');
+  const [dataIncarcarii, setDataIncarcarii] = useState('');
   const [locSwap, setLocSwap] = useState('');
   const [autoFilledTrailer, setAutoFilledTrailer] = useState<string | null>(
     null
   );
   const [localError, setLocalError] = useState<string | null>(null);
+
+  const adrDrivers = useMemo(() => buildAdrDriversSet(flota), [flota]);
 
   const fleetLists = useMemo(() => {
     const trucks = new Set<string>();
@@ -202,6 +208,7 @@ export function TripModal({
       setPerioadaEstimata(trip.cells[12] || '');
       setGarajDin(trip.cells[13] || '');
       setCamioaneOriginal(trip.cells[14] || auto.camioaneOriginal);
+      setDataIncarcarii(trip.cells[15] || '');
     } else {
       const maxId = allTrips.reduce((max, t) => {
         const parsed = parseInt(t.cells[0], 10);
@@ -225,6 +232,7 @@ export function TripModal({
       setPerioadaEstimata('');
       setGarajDin('');
       setCamioaneOriginal('');
+      setDataIncarcarii('');
     }
   }, [open, trip, allTrips, flota]);
 
@@ -368,6 +376,13 @@ export function TripModal({
     const isSpecialStatus =
       statusLower === 'curte' || statusLower === 'sofer' || isNewSwap;
 
+    if (!isSpecialStatus && !dataIncarcarii.trim()) {
+      setLocalError(
+        'Data încărcării (coloana P) este obligatorie înainte de salvare.'
+      );
+      return;
+    }
+
     if (trailerChanged && !locSwap.trim()) {
       setLocalError(
         'Localitatea predării/preluării remorcii este obligatorie (coloana F din istoric remorci).'
@@ -417,6 +432,7 @@ export function TripModal({
       perioadaEstimata.trim(),
       garajDin.trim(),
       camioaneOriginal.trim() || autoFallback.camioaneOriginal,
+      dataIncarcarii.trim(),
     ];
 
     await onSave({
@@ -433,6 +449,13 @@ export function TripModal({
 
   const displayError = localError || error;
   const isoPickerValue = roToIsoDate(dataText);
+  const isoLoadingPickerValue = roToIsoDate(dataIncarcarii);
+  const dataLowerLive = plainRo(dataText);
+  const loadingRequired =
+    dataLowerLive !== 'curte' && dataLowerLive !== 'sofer' && !isNewSwap;
+  const sofer1Adr = hasDriverAdr(sofer1, adrDrivers);
+  const sofer2Adr = hasDriverAdr(sofer2, adrDrivers);
+  const liveTripDays = computeTripDays(dataIncarcarii, dataText);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40">
@@ -443,7 +466,7 @@ export function TripModal({
               {trip ? `Editează rândul ${trip.rowIndex}` : 'Cursă nouă'}
             </h2>
             <p className="text-xs text-slate-500">
-              Coloane compatibile 1:1 cu „sheet 1” (A–O, cu auto-completare din Flotă)
+              Coloane compatibile 1:1 cu „sheet 1” (A–P, cu auto-completare din Flotă)
             </p>
           </div>
           <button
@@ -595,9 +618,17 @@ export function TripModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                {labelFor(7, 'nume sofer')} (Șofer 1)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="text-xs font-medium text-slate-700">
+                  {labelFor(7, 'nume sofer')} (Șofer 1)
+                </label>
+                {sofer1Adr && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold">
+                    <Flame className="h-3 w-3 text-orange-600" />
+                    ADR
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 list="fleet-drivers-list"
@@ -614,9 +645,17 @@ export function TripModal({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Șofer 2 (opțional · echipaj dublu)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="text-xs font-medium text-slate-700">
+                  Șofer 2 (opțional · echipaj dublu)
+                </label>
+                {sofer2Adr && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold">
+                    <Flame className="h-3 w-3 text-orange-600" />
+                    ADR
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 list="fleet-drivers-list"
@@ -636,11 +675,58 @@ export function TripModal({
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-            <div className="sm:col-span-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div
+              className={
+                loadingRequired && !dataIncarcarii.trim()
+                  ? 'p-3 rounded-lg border border-amber-300 bg-amber-50/50'
+                  : 'p-3 rounded-lg border border-slate-200 bg-slate-50/50'
+              }
+            >
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-slate-700">
-                  {labelFor(2, 'data descarcarii')}
+                <label className="text-xs font-medium text-slate-800">
+                  P · {labelFor(15, 'data incarcarii')}{' '}
+                  {loadingRequired ? (
+                    <span className="text-red-600 font-bold">*</span>
+                  ) : (
+                    <span className="text-[11px] font-normal text-slate-500">
+                      (opțional)
+                    </span>
+                  )}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDataIncarcarii(fmtRoDate(todayRo()))}
+                  className="text-[11px] text-blue-700 hover:underline font-medium"
+                >
+                  Azi
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  required={loadingRequired}
+                  value={dataIncarcarii}
+                  onChange={(e) => setDataIncarcarii(e.target.value)}
+                  placeholder="zz.ll.aaaa (obligatoriu)"
+                  className="flex-1 min-w-0 px-3 py-2.5 bg-white font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+                <input
+                  type="date"
+                  value={isoLoadingPickerValue}
+                  onChange={(e) => {
+                    if (e.target.value) setDataIncarcarii(isoToRoDate(e.target.value));
+                  }}
+                  aria-label="Alege data încărcării din calendar"
+                  className="w-[44px] px-2 py-2 border border-slate-200 rounded-lg bg-white text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-slate-800">
+                  C · {labelFor(2, 'data descarcarii')}
                 </label>
                 <div className="flex items-center gap-1.5 text-[11px]">
                   <button
@@ -674,7 +760,7 @@ export function TripModal({
                   value={dataText}
                   onChange={(e) => setDataText(e.target.value)}
                   placeholder="zz.ll.aaaa, curte sau sofer"
-                  className="flex-1 min-w-0 px-3 py-2.5 font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                  className="flex-1 min-w-0 px-3 py-2.5 bg-white font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
                 />
                 <input
                   type="date"
@@ -682,13 +768,30 @@ export function TripModal({
                   onChange={(e) => {
                     if (e.target.value) setDataText(isoToRoDate(e.target.value));
                   }}
-                  aria-label="Alege data din calendar"
-                  className="w-[44px] px-2 py-2 border border-slate-200 rounded-lg bg-slate-50 text-xs focus:outline-none focus:border-blue-600"
+                  aria-label="Alege data descărcării din calendar"
+                  className="w-[44px] px-2 py-2 border border-slate-200 rounded-lg bg-white text-xs focus:outline-none focus:border-blue-600"
                 />
               </div>
             </div>
+          </div>
 
-            <div className="sm:col-span-2">
+          {liveTripDays && (
+            <div className="px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between gap-2">
+              <span>
+                Durată cursă calculată:{' '}
+                <strong>
+                  {liveTripDays.days} {liveTripDays.days === 1 ? 'zi' : 'zile'}
+                </strong>
+              </span>
+              <span className="font-mono text-[11px] text-blue-700 tabular-nums">
+                {fmtRoDate(liveTripDays.startDate)} → {fmtRoDate(liveTripDays.endDate)}
+                {liveTripDays.ongoing ? ' (până azi)' : ''}
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+            <div className="sm:col-span-3">
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 {labelFor(3, 'tara')}
               </label>
@@ -701,7 +804,7 @@ export function TripModal({
               />
             </div>
 
-            <div className="sm:col-span-5">
+            <div className="sm:col-span-9">
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 {labelFor(4, 'localitatea')}
               </label>

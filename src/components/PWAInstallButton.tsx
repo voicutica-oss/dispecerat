@@ -63,13 +63,21 @@ export function PWAInstallButton({ compact = false }: { compact?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50">
           <div className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl shadow-xl p-6 space-y-4 pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-display text-base font-semibold text-slate-900">
-                  Instalare pe Telefon & Calculator
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Rulează ca aplicație dedicată pe ecranul principal sau Desktop.
-                </p>
+              <div className="flex items-center gap-3">
+                <img
+                  src="/logo-camion.png"
+                  alt="Sigla Dispecerat"
+                  referrerPolicy="no-referrer"
+                  className="h-10 w-10 rounded-xl object-cover shrink-0 ring-1 ring-slate-200"
+                />
+                <div>
+                  <h3 className="font-display text-base font-semibold text-slate-900">
+                    Instalare pe Telefon (Android &amp; iOS)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Instalare rapidă ca aplicație sau fișier nativ APK / iOS.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -150,6 +158,20 @@ export function PWAInstallButton({ compact = false }: { compact?: boolean }) {
                   <li>Deschide linkul aplicației în browserul <strong>Safari</strong>.</li>
                   <li>Apasă butonul <strong>Partajare</strong> (pătratul cu săgeată în sus).</li>
                   <li>Alege <strong>Adaugă pe ecranul principal</strong> (Add to Home Screen).</li>
+                </ol>
+              </div>
+
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-lg space-y-1.5">
+                <div className="font-semibold text-blue-950 flex items-center gap-1.5">
+                  <Smartphone className="h-3.5 w-3.5 text-blue-700" />
+                  <span>Fișier nativ Android (.apk) &amp; iOS (.ipa)</span>
+                </div>
+                <p className="text-slate-700 leading-relaxed">
+                  Proiectul include deja <strong>Capacitor</strong> (<code>android/</code>, <code>ios/</code>) și fluxuri automate în GitHub:
+                </p>
+                <ol className="list-decimal list-inside space-y-1 text-slate-700">
+                  <li>Pe GitHub → fila <strong>Actions</strong> → <strong>Construiește APK (Android)</strong> → descarci <code>Dispecerat-Flota-Android-APK</code>.</li>
+                  <li>Pentru iPhone/iPad: <strong>Actions</strong> → <strong>Construiește iOS (IPA nesemnat)</strong> → descarci <code>Dispecerat-Flota-iOS-IPA</code> (instalabil cu AltStore / Sideloadly / Xcode).</li>
                 </ol>
               </div>
             </div>

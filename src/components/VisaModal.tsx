@@ -1,7 +1,7 @@
 import { AlertCircle, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { VisaRecord } from '../types/fleet';
-import { isoToRoDate, roToIsoDate } from '../utils/roDates';
+import { isoToRoDate, resolveVisaColHeaders, roToIsoDate } from '../utils/roDates';
 
 interface VisaModalProps {
   open: boolean;
@@ -53,9 +53,7 @@ export function VisaModal({
 
   if (!open) return null;
 
-  const colB = headers[1]?.trim() || 'Nume șofer';
-  const colC = headers[2]?.trim() || 'Document';
-  const colD = headers[3]?.trim() || 'Data expirare';
+  const [, colB, colC, colD] = resolveVisaColHeaders(headers);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

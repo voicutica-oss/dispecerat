@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { TripRecord, TripStatusType } from '../types/fleet';
+import { saveBlobFile } from './fileDownload';
 import { fmtRoDateTime } from './roDates';
 
 const STATUS_ASCII: Record<TripStatusType, string> = {
@@ -35,17 +36,10 @@ function fileDateStamp(): string {
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
 
-function savePdfDoc(doc: jsPDF, filename: string) {
+export function savePdfDoc(doc: jsPDF, filename: string) {
   try {
     const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    saveBlobFile(blob, filename);
   } catch {
     doc.save(filename);
   }
@@ -100,6 +94,7 @@ export function exportTripsPdf(
     [
       '#',
       'Nr camion / remorca',
+      'Data inc.',
       'Data desc.',
       'Tara',
       'Localitatea',
@@ -117,6 +112,7 @@ export function exportTripsPdf(
     return [
       String(idx + 1),
       asciiRo(c[1] || '-'),
+      asciiRo(c[15] || '-'),
       asciiRo(c[2] || '-'),
       asciiRo(c[3] || '-'),
       asciiRo(c[4] || '-'),
@@ -153,16 +149,17 @@ export function exportTripsPdf(
     },
     columnStyles: {
       0: { cellWidth: 8, halign: 'right' },
-      1: { cellWidth: 30, fontStyle: 'bold' },
-      2: { cellWidth: 19 },
-      3: { cellWidth: 11, halign: 'center' },
-      4: { cellWidth: 34 },
-      5: { cellWidth: 34 },
-      6: { cellWidth: 42 },
-      7: { cellWidth: 34 },
-      8: { cellWidth: 23 },
-      9: { cellWidth: 22 },
-      10: { cellWidth: 20 },
+      1: { cellWidth: 28, fontStyle: 'bold' },
+      2: { cellWidth: 18 },
+      3: { cellWidth: 18 },
+      4: { cellWidth: 11, halign: 'center' },
+      5: { cellWidth: 30 },
+      6: { cellWidth: 30 },
+      7: { cellWidth: 36 },
+      8: { cellWidth: 32 },
+      9: { cellWidth: 23 },
+      10: { cellWidth: 22 },
+      11: { cellWidth: 21 },
     },
   });
 

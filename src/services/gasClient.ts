@@ -112,6 +112,9 @@ function normalizeGasPayload(data: Record<string, unknown>): GasPayload {
     istoricRemorci: Array.isArray(data.istoricRemorci)
       ? (data.istoricRemorci as string[][])
       : [],
+    zileCurse: Array.isArray(data.zileCurse)
+      ? (data.zileCurse as string[][])
+      : [],
   };
 }
 

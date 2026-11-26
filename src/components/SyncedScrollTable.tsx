@@ -1,15 +1,22 @@
+import { RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 interface SyncedScrollTableProps {
   children: ReactNode;
   className?: string;
   maxHeightClass?: string;
+  hasCustomWidths?: boolean;
+  onResetWidths?: () => void;
+  showResizeHint?: boolean;
 }
 
 export function SyncedScrollTable({
   children,
   className = '',
   maxHeightClass = 'max-h-[calc(100dvh-250px)] min-h-[220px]',
+  hasCustomWidths = false,
+  onResetWidths,
+  showResizeHint = true,
 }: SyncedScrollTableProps) {
   const topRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -110,6 +117,24 @@ export function SyncedScrollTable({
 
   return (
     <div className={className}>
+      {onResetWidths && (showResizeHint || hasCustomWidths) && (
+        <div className="px-3 py-1.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span className="truncate">
+            Trage marginea din dreapta a oricărui cap de coloană pentru redimensionare
+          </span>
+          {hasCustomWidths && (
+            <button
+              type="button"
+              onClick={onResetWidths}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shrink-0"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Resetează lățimi</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {hasHorizontalOverflow && (
         <div
           ref={topRef}
