@@ -5,7 +5,8 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-13
+    timeout-minutes: 60
     steps:
       - name: Descarcă codul
         uses: actions/checkout@v4
@@ -35,8 +36,8 @@ jobs:
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            archive \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
@@ -44,7 +45,13 @@ jobs:
       - name: Împachetează IPA
         run: |
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
-          cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/ipa/Payload/"
+          APP_PATH=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -name "App.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Eroare: App.app nu a fost găsit!"
+            exit 1
+          fi
+          echo "Găsit App.app la: $APP_PATH"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/"
           cd "$RUNNER_TEMP/ipa"
           zip -r "$RUNNER_TEMP/Dispecerat-Flota-iOS-Unsigned.ipa" Payload
 
