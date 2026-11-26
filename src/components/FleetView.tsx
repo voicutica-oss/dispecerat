@@ -1,12 +1,14 @@
-import { Search } from 'lucide-react';
+import { Check, FileSpreadsheet, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FreeTrailer, LeaveRecord, TripRecord } from '../types/fleet';
+import { exportToCsv } from '../utils/excelExport';
 import {
   FLOTA_DEFAULT_HEADERS,
   normRemKey,
   normRo,
   plainRo,
 } from '../utils/roDates';
+import { FleetModal } from './FleetModal';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
 interface FleetViewProps {
@@ -14,6 +16,7 @@ interface FleetViewProps {
   freeTrailers: FreeTrailer[];
   trips: TripRecord[];
   leaves: LeaveRecord[];
+  onSaveFleet: (payload: { row?: number; values: string[] }) => Promise<void>;
 }
 
 export function FleetView({
@@ -21,9 +24,17 @@ export function FleetView({
   freeTrailers,
   trips,
   leaves,
+  onSaveFleet,
 }: FleetViewProps) {
   const [subTab, setSubTab] = useState<'flota' | 'libere'>('flota');
   const [search, setSearch] = useState('');
+  const [onlyCheckedBifa, setOnlyCheckedBifa] = useState(true);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<{
+    rowIdx: number;
+    cells: string[];
+  } | null>(null);
 
   const headers = useMemo(() => {
     const h = flota[0] || [];
@@ -54,15 +65,22 @@ export function FleetView({
     const q = plainRo(search);
     const out: { rowIdx: number; cells: string[] }[] = [];
     for (let i = 1; i < flota.length; i++) {
-      const cells = Array.from({ length: 8 }, (_, idx) =>
-        String(flota[i]?.[idx] || '').trim()
+      const rowArr = flota[i] || [];
+      const cells = Array.from({ length: 12 }, (_, idx) =>
+        String(rowArr[idx] || '').trim()
       );
       if (cells.every((c) => !c)) continue;
+
+      const checkVal = String(rowArr[10] || '').trim(); // col K (index 10)
+      const hasBifa =
+        checkVal !== '' && !/^(nu|false|0|-)$/i.test(checkVal);
+
+      if (onlyCheckedBifa && !hasBifa && !q) continue;
       if (q && !cells.some((c) => plainRo(c).includes(q))) continue;
       out.push({ rowIdx: i + 1, cells });
     }
     return out;
-  }, [flota, search]);
+  }, [flota, search, onlyCheckedBifa]);
 
   const filteredFree = useMemo(() => {
     const q = plainRo(search);
@@ -75,6 +93,37 @@ export function FleetView({
         plainRo(f.flotaNote).includes(q)
     );
   }, [freeTrailers, search]);
+
+  const handleExportFleetExcel = () => {
+    exportToCsv(
+      'flota-vehicule',
+      [...headers, 'Situație cursă'],
+      fleetRows.map((r) => {
+        const remKey = normRemKey(r.cells[1]);
+        const activeTrip = remKey ? activeTrailerSet.get(remKey) : undefined;
+        const status = activeTrip
+          ? `În cursă - ${activeTrip.tara} ${activeTrip.localitate}`
+          : remKey
+          ? 'Remorcă liberă'
+          : '—';
+        return [...r.cells.slice(0, 8), status];
+      })
+    );
+  };
+
+  const handleExportFreeExcel = () => {
+    exportToCsv(
+      'remorci-libere',
+      ['Remorcă', 'Nr.', 'Nefolosită din', 'Ultimul șofer', 'Situație'],
+      filteredFree.map((f, i) => [
+        f.remorca,
+        i + 1,
+        f.nefolositaDin,
+        f.ultimulSofer || '—',
+        f.motiv || 'Fără cursă activă',
+      ])
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -90,7 +139,7 @@ export function FleetView({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Flotă ({Math.max(flota.length - 1, 0)})
+              Flotă ({fleetRows.length})
             </button>
             <button
               type="button"
@@ -101,7 +150,7 @@ export function FleetView({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Remorci libere ({freeTrailers.length})
+              Remorci libere ({filteredFree.length})
             </button>
           </div>
 
@@ -111,14 +160,57 @@ export function FleetView({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Caută camion, remorcă, șofer, telefon..."
+              placeholder="Caută camion, remorcă, șofer..."
               className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-600"
             />
           </div>
+
+          {subTab === 'flota' && (
+            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100">
+              <input
+                type="checkbox"
+                checked={onlyCheckedBifa}
+                onChange={(e) => setOnlyCheckedBifa(e.target.checked)}
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+              />
+              <span>Doar cu bifa (col. K)</span>
+            </label>
+          )}
         </div>
 
-        <div className="text-xs text-slate-500">
-          Calculat live din flotă, curse și istoric remorci
+        <div className="flex items-center gap-2">
+          {subTab === 'flota' ? (
+            <>
+              <button
+                type="button"
+                onClick={handleExportFleetExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Export Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingRow(null);
+                  setModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Adaugă vehicul</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleExportFreeExcel}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>Export Excel</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -126,151 +218,108 @@ export function FleetView({
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           {fleetRows.length === 0 ? (
             <div className="p-10 text-center text-sm text-slate-500">
-              Nicio înregistrare găsită în foaia „flota”.
+              Nicio înregistrare găsită în foaia „flota” care să respecte filtrul cu bifa.
             </div>
           ) : (
-            <>
-              <div className="md:hidden divide-y divide-slate-200">
-                {fleetRows.map((row) => {
-                  const remKey = normRemKey(row.cells[1]);
-                  const activeTrip = remKey
-                    ? activeTrailerSet.get(remKey)
-                    : undefined;
-                  const driverOnLeave =
-                    row.cells[2] && activeLeaveDrivers.has(normRo(row.cells[2]));
-
-                  return (
-                    <div key={row.rowIdx} className="p-4 space-y-1.5 text-xs">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="font-mono text-sm font-semibold text-slate-900">
-                          {[row.cells[0], row.cells[1]].filter(Boolean).join('/') || '—'}
-                        </div>
-                        {row.cells[3] && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-semibold uppercase text-slate-700">
-                            {row.cells[3]}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-slate-800 font-medium">
-                        {row.cells[2] || 'Fără șofer'}
-                        {driverOnLeave && (
-                          <span className="ml-2 text-amber-700">· În concediu azi</span>
-                        )}
-                      </div>
-                      {(row.cells[4] || row.cells[5]) && (
-                        <div className="font-mono text-slate-600">
-                          Tel: {row.cells[4] || '—'}
-                          {row.cells[5] ? ` · Rezervă: ${row.cells[5]}` : ''}
-                        </div>
-                      )}
-                      {(row.cells[6] || row.cells[7]) && (
-                        <div className="font-mono text-slate-500">
-                          {row.cells[6] ? `An: ${row.cells[6]}` : ''}
-                          {row.cells[6] && row.cells[7] ? ' · ' : ''}
-                          {row.cells[7] ? row.cells[7] : ''}
-                        </div>
-                      )}
-                      <div>
-                        {activeTrip ? (
-                          <span className="text-emerald-700 font-medium">
-                            În cursă · {activeTrip.tara} {activeTrip.localitate} ({activeTrip.dataDesc})
-                          </span>
-                        ) : remKey ? (
-                          <span className="text-slate-500">Remorcă liberă</span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <SyncedScrollTable className="hidden md:block">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                      {headers.map((h, i) => (
-                        <th
-                          key={i}
-                          className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap ${
-                            i === 0
-                              ? 'left-0 z-30 border-r border-slate-200'
-                              : 'z-20'
-                          }`}
-                        >
-                          {h}
-                        </th>
-                      ))}
-                      <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap">
-                        Situație cursă
+            <SyncedScrollTable>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    {headers.slice(0, 8).map((h, i) => (
+                      <th
+                        key={i}
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap ${
+                          i === 0
+                            ? 'left-0 z-30 border-r border-slate-200 w-20 sm:w-24 max-w-[100px]'
+                            : 'z-20'
+                        }`}
+                      >
+                        {h}
                       </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {fleetRows.map((row) => {
-                      const remKey = normRemKey(row.cells[1]);
-                      const activeTrip = remKey
-                        ? activeTrailerSet.get(remKey)
-                        : undefined;
-                      const driverOnLeave =
-                        row.cells[2] &&
-                        activeLeaveDrivers.has(normRo(row.cells[2]));
+                    ))}
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 whitespace-nowrap">
+                      Situație cursă
+                    </th>
+                    <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-3.5 text-right whitespace-nowrap">
+                      Acțiuni
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {fleetRows.map((row) => {
+                    const remKey = normRemKey(row.cells[1]);
+                    const activeTrip = remKey
+                      ? activeTrailerSet.get(remKey)
+                      : undefined;
+                    const driverOnLeave =
+                      row.cells[2] &&
+                      activeLeaveDrivers.has(normRo(row.cells[2]));
 
-                      return (
-                        <tr key={row.rowIdx} className="group hover:bg-slate-50">
-                          <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
-                            {row.cells[0] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
-                            {row.cells[1] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 whitespace-nowrap">
-                            <span className="text-slate-900 font-medium">
-                              {row.cells[2] || '—'}
+                    return (
+                      <tr key={row.rowIdx} className="group hover:bg-slate-50">
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 w-20 sm:w-24 max-w-[100px] whitespace-normal break-words">
+                          {row.cells[0] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">
+                          {row.cells[1] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 whitespace-normal break-words max-w-[180px]">
+                          <span className="text-slate-900 font-medium">
+                            {row.cells[2] || '—'}
+                          </span>
+                          {driverOnLeave && (
+                            <span className="ml-2 text-xs text-amber-700 font-medium whitespace-nowrap">
+                              · În concediu azi
                             </span>
-                            {driverOnLeave && (
-                              <span className="ml-2 text-xs text-amber-700 font-medium">
-                                · În concediu azi
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3.5 text-slate-600 whitespace-nowrap">
-                            {row.cells[3] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
-                            {row.cells[4] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums">
-                            {row.cells[5] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
-                            {row.cells[6] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap">
-                            {row.cells[7] || '—'}
-                          </td>
-                          <td className="py-2.5 px-3.5 text-xs whitespace-nowrap">
-                            {activeTrip ? (
-                              <span className="text-emerald-700 font-medium">
-                                În cursă · {activeTrip.tara}{' '}
-                                {activeTrip.localitate} ({activeTrip.dataDesc})
-                              </span>
-                            ) : remKey ? (
-                              <span className="text-slate-500">
-                                Remorcă liberă
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </SyncedScrollTable>
-            </>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-slate-600 whitespace-nowrap">
+                          {row.cells[3] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                          {row.cells[4] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                          {row.cells[5] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                          {row.cells[6] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-mono text-xs text-slate-700 whitespace-normal break-words max-w-[150px]">
+                          {row.cells[7] || '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-xs whitespace-nowrap">
+                          {activeTrip ? (
+                            <span className="text-emerald-700 font-medium">
+                              În cursă · {activeTrip.tara}{' '}
+                              {activeTrip.localitate} ({activeTrip.dataDesc})
+                            </span>
+                          ) : remKey ? (
+                            <span className="text-slate-500">
+                              Remorcă liberă
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRow(row);
+                              setModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100"
+                          >
+                            Modifică
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </SyncedScrollTable>
           )}
         </div>
       ) : (
@@ -284,7 +333,7 @@ export function FleetView({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                    <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap w-24 sm:w-32 max-w-[120px]">
                       Remorcă
                     </th>
                     <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
@@ -304,7 +353,7 @@ export function FleetView({
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {filteredFree.map((item, idx) => (
                     <tr key={item.remorca} className="group hover:bg-slate-50">
-                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-xs font-semibold text-slate-900 w-24 sm:w-32 max-w-[120px] whitespace-normal break-words">
                         {item.remorca}
                       </td>
                       <td className="py-2.5 px-4 font-mono text-xs text-slate-400 tabular-nums">
@@ -313,7 +362,7 @@ export function FleetView({
                       <td className="py-2.5 px-4 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
                         {item.nefolositaDin}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-700 whitespace-nowrap">
+                      <td className="py-2.5 px-4 text-slate-700 whitespace-normal break-words max-w-[200px]">
                         {item.ultimulSofer || '—'}
                       </td>
                       <td className="py-2.5 px-4 text-xs text-slate-600 whitespace-nowrap">
@@ -327,6 +376,14 @@ export function FleetView({
           )}
         </div>
       )}
+
+      <FleetModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        row={editingRow}
+        flotaHeaders={headers}
+        onSave={onSaveFleet}
+      />
     </div>
   );
 }

@@ -1,7 +1,8 @@
-import { Edit3, FileDown, Plus, Search } from 'lucide-react';
+import { Edit3, FileDown, FileSpreadsheet, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { TripRecord, TripStatusType } from '../types/fleet';
 import { formatCountryOption } from '../utils/countryFlags';
+import { exportToCsv } from '../utils/excelExport';
 import { exportTripsPdf } from '../utils/pdfExport';
 import {
   computeFleetAutoFill,
@@ -152,6 +153,16 @@ export function TripsView({
     exportTripsPdf(filtered, resolvedCellsMap, filterParts.join(', '));
   };
 
+  const handleExportExcel = () => {
+    const headers = [...colHeaders, 'Stare'];
+    const dataRows = filtered.map((t) => {
+      const c = resolvedCellsMap.get(t.rowIndex) || t.cells;
+      const stLabel = STATUS_LABELS[t.statusType]?.label || '';
+      return [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], stLabel];
+    });
+    exportToCsv('raport-curse', headers, dataRows);
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
@@ -211,6 +222,15 @@ export function TripsView({
           <span className="text-xs text-slate-500 tabular-nums">
             {filteredWithTractor} din {totalWithTractor} camioane
           </span>
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors whitespace-nowrap"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <span>Excel</span>
+          </button>
           <button
             type="button"
             onClick={handleExportPdf}
@@ -357,10 +377,10 @@ export function TripsView({
                     {colHeaders.map((h, i) => (
                       <th
                         key={i}
-                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 whitespace-nowrap ${
+                        className={`sticky top-0 bg-slate-50 border-b border-slate-200 py-2.5 px-3 ${
                           i === 0
-                            ? 'left-0 z-30 border-r border-slate-200'
-                            : 'z-20'
+                            ? 'left-0 z-30 border-r border-slate-200 w-16 sm:w-20 max-w-[80px] whitespace-normal break-words'
+                            : 'z-20 whitespace-nowrap'
                         }`}
                       >
                         {h}
@@ -387,7 +407,7 @@ export function TripsView({
                         title={`Rând ${trip.rowIndex}`}
                         className="group hover:bg-slate-50 transition-colors cursor-pointer"
                       >
-                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                        <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-3 font-mono text-xs text-slate-700 w-16 sm:w-20 max-w-[80px] whitespace-normal break-words tabular-nums">
                           {cells[0] || '—'}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-xs font-medium text-slate-900 whitespace-nowrap">

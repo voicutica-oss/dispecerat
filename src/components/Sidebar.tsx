@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  BarChart3,
   CalendarDays,
   Container,
   FileCheck2,
@@ -41,6 +42,7 @@ const NAV_ITEMS: {
   { id: 'curse', label: 'Curse', icon: Route, countKey: 'activeTrips' },
   { id: 'flota', label: 'Flotă & Remorci', icon: Truck, countKey: 'fleetCount' },
   { id: 'remorci_libere', label: 'Remorci Libere', icon: Container, countKey: 'freeTrailers' },
+  { id: 'zile_curse', label: 'Zile Curse Luni', icon: BarChart3 },
   { id: 'vize', label: 'Vize Medicale', icon: FileCheck2, countKey: 'visaAlerts' },
   { id: 'concedii', label: 'Concedii', icon: CalendarDays, countKey: 'activeLeaves' },
   { id: 'istoric_remorci', label: 'Istoric Remorci', icon: ArrowLeftRight, countKey: 'trailerHistoryCount' },

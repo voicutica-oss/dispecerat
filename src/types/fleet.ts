@@ -6,7 +6,8 @@ export type NavTab =
   | 'vize'
   | 'concedii'
   | 'istoric_remorci'
-  | 'istoric';
+  | 'istoric'
+  | 'zile_curse';
 
 export interface GasPayload {
   scriptVersion?: string;
@@ -16,6 +17,7 @@ export interface GasPayload {
   concediu: string[][];
   istoric: string[][];
   istoricRemorci?: string[][];
+  zileCurse?: string[][];
 }
 
 export interface GasConfig {
@@ -82,7 +84,7 @@ export interface GasMutatePayload {
   action?: 'write';
   key: string;
   user: string;
-  kind: 'curse' | 'vize' | 'concediu';
+  kind: 'curse' | 'vize' | 'concediu' | 'flota';
   row?: number;
   values: string[];
   loc?: string;

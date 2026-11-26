@@ -15,6 +15,7 @@ import { TripModal } from './components/TripModal';
 import { TripsView } from './components/TripsView';
 import { VisaModal } from './components/VisaModal';
 import { VisasView } from './components/VisasView';
+import { ZileCurseView } from './components/ZileCurseView';
 import { createDemoData } from './data/demoData';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { mutateGas, syncFromGas } from './services/gasClient';
@@ -228,7 +229,7 @@ export default function App() {
       setSyncError(null);
       try {
         const fresh = await syncFromGas(cfg.scriptUrl, cfg.key);
-        setScriptOutdated(Number(fresh.scriptVersion || 0) < 2.9);
+        setScriptOutdated(Number(fresh.scriptVersion || 0) < 3.0);
         if (pendingSavesRef.current > 0) return;
 
         const now = Date.now();
@@ -729,6 +730,52 @@ export default function App() {
     }
   };
 
+  const handleSaveFleet = async (payload: { row?: number; values: string[] }) => {
+    const userName = config.user || 'Dispecer';
+    const nowStr = fmtRoDateTime(new Date());
+
+    applyLocalData((prev) => {
+      const nextFlota = prev.flota.map((r) => [...r]);
+      const rowNum = payload.row || nextFlota.length + 1;
+      let before = '';
+      if (payload.row && payload.row - 1 < nextFlota.length) {
+        before = nextFlota[payload.row - 1].join(' | ');
+        nextFlota[payload.row - 1] = payload.values;
+      } else {
+        nextFlota.push(payload.values);
+      }
+      const logRow = [
+        nowStr,
+        userName,
+        'flota',
+        String(rowNum),
+        payload.row ? 'Modificare Flotă' : 'Adăugare Flotă',
+        before,
+        payload.values.join(' | '),
+      ];
+      return {
+        ...prev,
+        flota: nextFlota,
+        istoric: [...prev.istoric, logRow],
+      };
+    });
+
+    if (config.mode === 'live' && config.scriptUrl) {
+      try {
+        await mutateGas(config.scriptUrl, {
+          key: config.key,
+          user: userName,
+          kind: 'flota',
+          row: payload.row,
+          values: payload.values,
+        });
+        performSync(config, true);
+      } catch (err: unknown) {
+        setSyncError(err instanceof Error ? err.message : 'Eroare la salvarea flotei.');
+      }
+    }
+  };
+
   const handleSaveVisa = async (payload: { row?: number; values: string[] }) => {
     setVisaError(null);
     setVisaSaving(false);
@@ -1198,11 +1245,16 @@ export default function App() {
                   freeTrailers={freeTrailers}
                   trips={trips}
                   leaves={leaves}
+                  onSaveFleet={handleSaveFleet}
                 />
               )}
 
               {activeTab === 'remorci_libere' && (
                 <FreeTrailersView freeTrailers={freeTrailers} />
+              )}
+
+              {activeTab === 'zile_curse' && (
+                <ZileCurseView zileCurse={data.zileCurse || []} />
               )}
 
               {activeTab === 'vize' && (

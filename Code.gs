@@ -252,6 +252,52 @@ function refreshRemorciLibere_() {
   libSh.clearContents();
   libSh.getRange(1, 1, target.length, 3).setValues(target);
 }
+function refreshZileCurseCamion_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tabName = 'zile curse camion';
+  let sh = sheet_(tabName);
+  if (!sh) {
+    sh = ss.insertSheet(tabName);
+    sh.setFrozenRows(1);
+    sh.setFrozenColumns(1);
+  }
+  const fl = vals_(TAB_FLOTA, 12);
+  const cu = vals_(TAB_CURSE, 15);
+  const trucksSet = {};
+  for (let i = 1; i < fl.length; i++) {
+    const cam = String(fl[i][0] || '').trim();
+    if (cam) trucksSet[cam.toUpperCase()] = cam;
+  }
+  for (let i = 1; i < cu.length; i++) {
+    const nrCam = String(cu[i][1] || '').split('/')[0].trim();
+    if (nrCam) trucksSet[nrCam.toUpperCase()] = nrCam;
+  }
+  const trucks = Object.keys(trucksSet).map(k => trucksSet[k]).sort();
+  const counts = {};
+  trucks.forEach(t => { counts[t] = Array(12).fill(0); });
+  for (let i = 1; i < cu.length; i++) {
+    const nr = String(cu[i][1] || '');
+    const cam = nr.split('/')[0].trim();
+    if (!cam) continue;
+    const key = cam.toUpperCase();
+    if (!counts[key]) counts[key] = Array(12).fill(0);
+    const d = parseRo_(cu[i][2]);
+    if (d && d.getFullYear() === AN_CONCEDIU) {
+      const m = d.getMonth();
+      counts[key][m] += 1;
+    }
+  }
+  const header = ['Nr camion', 'Ian', 'Feb', 'Mar', 'Apr', 'Mai', 'Iun', 'Iul', 'Aug', 'Sep', 'Oct', 'Noi', 'Dec', 'TOTAL AN'];
+  const rows = trucks.map(cam => {
+    const key = cam.toUpperCase();
+    const arr = counts[key] || Array(12).fill(0);
+    const total = arr.reduce((a, b) => a + b, 0);
+    return [cam, ...arr, total];
+  });
+  const target = [header].concat(rows);
+  sh.clearContents();
+  sh.getRange(1, 1, target.length, header.length).setValues(target);
+}
 function normRem_(r) {
   const s = String(r || '').trim();
   return !s || /^schimb/i.test(s) ? '' : s;
@@ -532,12 +578,14 @@ function actualizeazaSheet1DinFlota() {
   });
   syncSheet1AutoFill_();
   refreshRemorciLibere_();
+  refreshZileCurseCamion_();
 }
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
       .createMenu('Dispecerat')
       .addItem('Completează I-O din Flotă (sheet 1)', 'actualizeazaSheet1DinFlota')
+      .addItem('Recalculează zile curse camion', 'refreshZileCurseCamion_')
       .addItem('Recalculează totaluri concediu', 'actualizeazaTotaluriConcediu')
       .addToUi();
   } catch (err) {
@@ -549,7 +597,7 @@ function onEdit(e) {
   const sh = e.range.getSheet();
   const name = sh.getName();
   const low = name.trim().toLowerCase();
-  if (low === TAB_ISTORIC || low === TAB_IST_REM || low === TAB_LIBERE || low === TAB_TOTAL) return;
+  if (low === TAB_ISTORIC || low === TAB_IST_REM || low === TAB_LIBERE || low === TAB_TOTAL || low === 'zile curse camion') return;
   const startRow = e.range.getRow();
   const numRows = e.range.getNumRows();
   const startCol = e.range.getColumn();
@@ -608,20 +656,25 @@ function onEdit(e) {
     for (let r = fromR; r <= endRow; r++) recalcConcediuRow_(sh, r);
   }
   if (low === TAB_FLOTA) syncSheet1AutoFill_();
-  if (low === TAB_CURSE || low === TAB_FLOTA) refreshRemorciLibere_();
+  if (low === TAB_CURSE || low === TAB_FLOTA) {
+    refreshRemorciLibere_();
+    refreshZileCurseCamion_();
+  }
 }
 function doGet(e) {
   if (!e || (e.parameter.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
   syncSheet1AutoFill_();
   refreshRemorciLibere_();
+  refreshZileCurseCamion_();
   return out_({
-    scriptVersion: '2.9',
+    scriptVersion: '3.0',
     curse: vals_(TAB_CURSE, 15),
     vize: vizeRows_(),
-    flota: vals_(TAB_FLOTA, 8),
+    flota: vals_(TAB_FLOTA, 12),
     concediu: concediuRows_(),
     istoric: istoric_(),
-    istoricRemorci: vals_(TAB_IST_REM, 17)
+    istoricRemorci: vals_(TAB_IST_REM, 17),
+    zileCurse: vals_('zile curse camion', 14)
   });
 }
 function doPost(e) {
@@ -666,6 +719,21 @@ function doPost(e) {
       v15[7] || ''
     );
     refreshRemorciLibere_();
+    return out_({ ok: true, row });
+  }
+
+  if (b.kind === 'flota') {
+    const sh = sheet_(TAB_FLOTA);
+    if (!sh) return out_({ error: 'Foaia flota lipsește' });
+    const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    const oldRow = b.row ? sh.getRange(row, 1, 1, 12).getDisplayValues()[0] : [];
+    const before = oldRow.length ? oldRow.join(' | ') : '';
+    const v12 = Array.from({ length: 12 }, (_, i) => String(vals[i] || ''));
+    sh.getRange(row, 1, 1, 12).setValues([v12]);
+    log_(user, sh.getName(), row, b.row ? 'Modificare Flotă' : 'Adăugare Flotă', before, v12.join(' | '));
+    syncSheet1AutoFill_();
+    refreshRemorciLibere_();
+    refreshZileCurseCamion_();
     return out_({ ok: true, row });
   }
 

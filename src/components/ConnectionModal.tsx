@@ -33,10 +33,10 @@ function istoric_() {
   return sh.getRange(start, 1, n - start + 1, 7).getDisplayValues();
 }
 function plain_(s) {
-  return String(s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().trim();
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 function norm_(s) {
-  return plain_(s).replace(/[^a-z0-9 ]/g, ' ').split(/\\s+/).filter(Boolean).sort().join(' ');
+  return plain_(s).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
 }
 function log_(user, tab, row, actiune, inainte, dupa) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -50,7 +50,7 @@ function log_(user, tab, row, actiune, inainte, dupa) {
   sh.appendRow([t, user, tab, row, actiune, inainte, dupa]);
 }
 function parseRo_(s) {
-  const m = String(s || '').match(/(\\d{1,2})[.\\/-](\\d{1,2})[.\\/-](\\d{4})/);
+  const m = String(s || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 function fmtRo_(d) {
@@ -84,7 +84,7 @@ function concediuMeta_(sh, ensureTypeCols) {
     let totalCol = -1;
     headers.forEach((h, idx) => {
       const p = plain_(h);
-      if (p.indexOf('total') >= 0 && !/\\b(co|cm|l|cfp)\\b/.test(p)) totalCol = idx + 1;
+      if (p.indexOf('total') >= 0 && !/\b(co|cm|l|cfp)\b/.test(p)) totalCol = idx + 1;
       for (let t = 0; t < TIPURI_CONCEDIU.length; t++) {
         const k = TIPURI_CONCEDIU[t].toLowerCase();
         if (p === k || p === 'total ' + k || p.slice(-(k.length + 1)) === ' ' + k) typeCols[TIPURI_CONCEDIU[t]] = idx + 1;
@@ -115,10 +115,10 @@ function concediuMeta_(sh, ensureTypeCols) {
 }
 function detectLeavePrefix_(raw) {
   const s = String(raw || '').trim();
-  const n = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
-  const m = n.match(/^(concediu\\s+fara\\s+plata|fara\\s+plata|cfp|fp|concediu\\s+medical|medical|cm|concediu\\s+odihna|odihna|co|libere|liber|l)(?:\\b|(?=\\d))[\\s:.-]*(.*)$/i);
+  const n = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const m = n.match(/^(concediu\s+fara\s+plata|fara\s+plata|cfp|fp|concediu\s+medical|medical|cm|concediu\s+odihna|odihna|co|libere|liber|l)(?:\b|(?=\d))[\s:.-]*(.*)$/i);
   if (!m) return { type: null, rest: s };
-  const kw = m[1].toLowerCase().replace(/\\s+/g, ' ');
+  const kw = m[1].toLowerCase().replace(/\s+/g, ' ');
   let t = 'CO';
   if (kw === 'cfp' || kw === 'fp' || kw.indexOf('fara plata') >= 0) t = 'CFP';
   else if (kw === 'cm' || kw.indexOf('medical') >= 0) t = 'CM';
@@ -135,18 +135,18 @@ function recalcConcediuRow_(sh, row, meta) {
     const txt = String(rowVals[cIdx] || '').trim();
     if (!txt) continue;
     const seenAll = {}, seenType = { CO: {}, CM: {}, L: {}, CFP: {} };
-    txt.split(/[;\\n]+/).forEach(clause => {
+    txt.split(/[;\n]+/).forEach(clause => {
       let activeType = 'CO';
       clause.split(',').forEach(rawSeg => {
         const det = detectLeavePrefix_(rawSeg);
         if (det.type) activeType = det.type;
-        const cl = det.rest.replace(/^[a-zA-Z.\\s]+(?=\\d)/, '').trim();
+        const cl = det.rest.replace(/^[a-zA-Z.\s]+(?=\d)/, '').trim();
         if (!cl) return;
-        const rp = cl.split(/\\s*[-–—]+\\s*/).filter(Boolean);
+        const rp = cl.split(/\s*[-–—]+\s*/).filter(Boolean);
         const pDay = s => {
-          const dm = String(s).match(/(\\d{1,2})[.\\/-](\\d{1,2})/);
+          const dm = String(s).match(/(\d{1,2})[.\/-](\d{1,2})/);
           if (dm) return new Date(AN_CONCEDIU, +dm[2] - 1, +dm[1]);
-          const d1 = String(s).match(/\\b(\\d{1,2})\\b/);
+          const d1 = String(s).match(/\b(\d{1,2})\b/);
           return d1 ? new Date(AN_CONCEDIU, m, +d1[1]) : null;
         };
         const a = pDay(rp[0]), b2 = pDay(rp[rp.length - 1]);
@@ -256,6 +256,52 @@ function refreshRemorciLibere_() {
   libSh.clearContents();
   libSh.getRange(1, 1, target.length, 3).setValues(target);
 }
+function refreshZileCurseCamion_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tabName = 'zile curse camion';
+  let sh = sheet_(tabName);
+  if (!sh) {
+    sh = ss.insertSheet(tabName);
+    sh.setFrozenRows(1);
+    sh.setFrozenColumns(1);
+  }
+  const fl = vals_(TAB_FLOTA, 12);
+  const cu = vals_(TAB_CURSE, 15);
+  const trucksSet = {};
+  for (let i = 1; i < fl.length; i++) {
+    const cam = String(fl[i][0] || '').trim();
+    if (cam) trucksSet[cam.toUpperCase()] = cam;
+  }
+  for (let i = 1; i < cu.length; i++) {
+    const nrCam = String(cu[i][1] || '').split('/')[0].trim();
+    if (nrCam) trucksSet[nrCam.toUpperCase()] = nrCam;
+  }
+  const trucks = Object.keys(trucksSet).map(k => trucksSet[k]).sort();
+  const counts = {};
+  trucks.forEach(t => { counts[t] = Array(12).fill(0); });
+  for (let i = 1; i < cu.length; i++) {
+    const nr = String(cu[i][1] || '');
+    const cam = nr.split('/')[0].trim();
+    if (!cam) continue;
+    const key = cam.toUpperCase();
+    if (!counts[key]) counts[key] = Array(12).fill(0);
+    const d = parseRo_(cu[i][2]);
+    if (d && d.getFullYear() === AN_CONCEDIU) {
+      const m = d.getMonth();
+      counts[key][m] += 1;
+    }
+  }
+  const header = ['Nr camion', 'Ian', 'Feb', 'Mar', 'Apr', 'Mai', 'Iun', 'Iul', 'Aug', 'Sep', 'Oct', 'Noi', 'Dec', 'TOTAL AN'];
+  const rows = trucks.map(cam => {
+    const key = cam.toUpperCase();
+    const arr = counts[key] || Array(12).fill(0);
+    const total = arr.reduce((a, b) => a + b, 0);
+    return [cam, ...arr, total];
+  });
+  const target = [header].concat(rows);
+  sh.clearContents();
+  sh.getRange(1, 1, target.length, header.length).setValues(target);
+}
 function normRem_(r) {
   const s = String(r || '').trim();
   return !s || /^schimb/i.test(s) ? '' : s;
@@ -285,7 +331,7 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
   let maxNr = 0;
   for (let i = 0; i < rows.length; i++) {
     const a = String(rows[i][0] || '').trim();
-    if (/^\\d+$/.test(a)) {
+    if (/^\d+$/.test(a)) {
       const n = parseInt(a, 10);
       if (n > maxNr) maxNr = n;
     }
@@ -377,7 +423,7 @@ function normKey_(s) {
   return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 function splitDrivers_(s) {
-  return String(s || '').split(/[,\\/\\r\\n]+/).map(function(x) { return x.trim(); }).filter(Boolean);
+  return String(s || '').split(/[,\/\r\n]+/).map(function(x) { return x.trim(); }).filter(Boolean);
 }
 function flotaLookup_() {
   const fl = vals_(TAB_FLOTA, 8);
@@ -536,12 +582,14 @@ function actualizeazaSheet1DinFlota() {
   });
   syncSheet1AutoFill_();
   refreshRemorciLibere_();
+  refreshZileCurseCamion_();
 }
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
       .createMenu('Dispecerat')
       .addItem('Completează I-O din Flotă (sheet 1)', 'actualizeazaSheet1DinFlota')
+      .addItem('Recalculează zile curse camion', 'refreshZileCurseCamion_')
       .addItem('Recalculează totaluri concediu', 'actualizeazaTotaluriConcediu')
       .addToUi();
   } catch (err) {
@@ -553,7 +601,7 @@ function onEdit(e) {
   const sh = e.range.getSheet();
   const name = sh.getName();
   const low = name.trim().toLowerCase();
-  if (low === TAB_ISTORIC || low === TAB_IST_REM || low === TAB_LIBERE || low === TAB_TOTAL) return;
+  if (low === TAB_ISTORIC || low === TAB_IST_REM || low === TAB_LIBERE || low === TAB_TOTAL || low === 'zile curse camion') return;
   const startRow = e.range.getRow();
   const numRows = e.range.getNumRows();
   const startCol = e.range.getColumn();
@@ -612,20 +660,25 @@ function onEdit(e) {
     for (let r = fromR; r <= endRow; r++) recalcConcediuRow_(sh, r);
   }
   if (low === TAB_FLOTA) syncSheet1AutoFill_();
-  if (low === TAB_CURSE || low === TAB_FLOTA) refreshRemorciLibere_();
+  if (low === TAB_CURSE || low === TAB_FLOTA) {
+    refreshRemorciLibere_();
+    refreshZileCurseCamion_();
+  }
 }
 function doGet(e) {
   if (!e || (e.parameter.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
   syncSheet1AutoFill_();
   refreshRemorciLibere_();
+  refreshZileCurseCamion_();
   return out_({
-    scriptVersion: '2.9',
+    scriptVersion: '3.0',
     curse: vals_(TAB_CURSE, 15),
     vize: vizeRows_(),
-    flota: vals_(TAB_FLOTA, 8),
+    flota: vals_(TAB_FLOTA, 12),
     concediu: concediuRows_(),
     istoric: istoric_(),
-    istoricRemorci: vals_(TAB_IST_REM, 17)
+    istoricRemorci: vals_(TAB_IST_REM, 17),
+    zileCurse: vals_('zile curse camion', 14)
   });
 }
 function doPost(e) {
@@ -673,6 +726,21 @@ function doPost(e) {
     return out_({ ok: true, row });
   }
 
+  if (b.kind === 'flota') {
+    const sh = sheet_(TAB_FLOTA);
+    if (!sh) return out_({ error: 'Foaia flota lipsește' });
+    const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    const oldRow = b.row ? sh.getRange(row, 1, 1, 12).getDisplayValues()[0] : [];
+    const before = oldRow.length ? oldRow.join(' | ') : '';
+    const v12 = Array.from({ length: 12 }, (_, i) => String(vals[i] || ''));
+    sh.getRange(row, 1, 1, 12).setValues([v12]);
+    log_(user, sh.getName(), row, b.row ? 'Modificare Flotă' : 'Adăugare Flotă', before, v12.join(' | '));
+    syncSheet1AutoFill_();
+    refreshRemorciLibere_();
+    refreshZileCurseCamion_();
+    return out_({ ok: true, row });
+  }
+
   if (b.kind === 'vize') {
     const sh = sheet_(TAB_VIZE);
     if (!sh) return out_({ error: 'Foaia vize medicale lipsește' });
@@ -701,7 +769,7 @@ function doPost(e) {
     }
 
     const monthIdxNum = Number(vals[1]);
-    if (!isNaN(monthIdxNum) && monthIdxNum >= 0 && monthIdxNum <= 11 && /^\\d{1,2}$/.test(String(vals[1]).trim())) {
+    if (!isNaN(monthIdxNum) && monthIdxNum >= 0 && monthIdxNum <= 11 && /^\d{1,2}$/.test(String(vals[1]).trim())) {
       const col = meta.monthCols[monthIdxNum] || (monthIdxNum + 2);
       const cellText = String(vals[2] || '').trim();
       const before = String(sh.getRange(row, col).getDisplayValue() || '').trim();
@@ -716,7 +784,7 @@ function doPost(e) {
   }
 
   return out_({ error: 'Acțiune necunoscută' });
-}`;
+}`
 
 interface ConnectionModalProps {
   open: boolean;

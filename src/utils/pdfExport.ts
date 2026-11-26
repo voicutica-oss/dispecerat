@@ -35,6 +35,22 @@ function fileDateStamp(): string {
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
 
+function savePdfDoc(doc: jsPDF, filename: string) {
+  try {
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch {
+    doc.save(filename);
+  }
+}
+
 function addPageNumbers(doc: jsPDF) {
   const totalPages = doc.getNumberOfPages();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -151,7 +167,7 @@ export function exportTripsPdf(
   });
 
   addPageNumbers(doc);
-  doc.save(`raport-curse-${fileDateStamp()}.pdf`);
+  savePdfDoc(doc, `raport-curse-${fileDateStamp()}.pdf`);
 }
 
 export function exportHistoryPdf(rows: string[][], filterSummary: string) {
@@ -226,5 +242,5 @@ export function exportHistoryPdf(rows: string[][], filterSummary: string) {
   });
 
   addPageNumbers(doc);
-  doc.save(`raport-istoric-${fileDateStamp()}.pdf`);
+  savePdfDoc(doc, `raport-istoric-${fileDateStamp()}.pdf`);
 }

@@ -1,5 +1,6 @@
-import { FileDown, Search } from 'lucide-react';
+import { FileDown, FileSpreadsheet, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { exportToCsv } from '../utils/excelExport';
 import { exportHistoryPdf } from '../utils/pdfExport';
 import { plainRo } from '../utils/roDates';
 import { SyncedScrollTable } from './SyncedScrollTable';
@@ -14,7 +15,6 @@ export function HistoryView({ istoric }: HistoryViewProps) {
 
   const rows = useMemo(() => {
     const q = plainRo(search);
-    // Display newest first
     return [...istoric]
       .filter(
         (r) =>
@@ -57,6 +57,14 @@ export function HistoryView({ istoric }: HistoryViewProps) {
     exportHistoryPdf(rows, parts.join(', '));
   };
 
+  const handleExportExcel = () => {
+    exportToCsv(
+      'istoric-modificari',
+      ['Data și ora', 'Utilizator', 'Tab', 'Rând', 'Acțiune', 'Înainte', 'După'],
+      rows
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -96,12 +104,21 @@ export function HistoryView({ istoric }: HistoryViewProps) {
           </span>
           <button
             type="button"
+            onClick={handleExportExcel}
+            disabled={rows.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <span>Excel</span>
+          </button>
+          <button
+            type="button"
             onClick={handleExportPdf}
             disabled={rows.length === 0}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
           >
             <FileDown className="h-3.5 w-3.5 text-slate-500" />
-            <span>Export PDF</span>
+            <span>PDF</span>
           </button>
         </div>
       </div>
@@ -116,7 +133,7 @@ export function HistoryView({ istoric }: HistoryViewProps) {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
-                  <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap">
+                  <th className="sticky top-0 left-0 z-30 bg-slate-50 border-b border-r border-slate-200 py-2.5 px-4 whitespace-nowrap w-24 sm:w-28 max-w-[110px]">
                     Data și ora
                   </th>
                   <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 py-2.5 px-4 whitespace-nowrap">
@@ -142,7 +159,7 @@ export function HistoryView({ istoric }: HistoryViewProps) {
               <tbody className="divide-y divide-slate-100 text-xs">
                 {rows.map((r, i) => (
                   <tr key={i} className="group hover:bg-slate-50 align-top">
-                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-slate-600 whitespace-nowrap tabular-nums">
+                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-200 py-2.5 px-4 font-mono text-slate-600 w-24 sm:w-28 max-w-[110px] whitespace-normal break-words">
                       {r[0] || '—'}
                     </td>
                     <td className="py-2.5 px-4 font-medium text-slate-900 whitespace-nowrap">
@@ -167,10 +184,10 @@ export function HistoryView({ istoric }: HistoryViewProps) {
                         {r[4] || '—'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-slate-500 max-w-[260px] break-words">
+                    <td className="py-2.5 px-4 text-slate-500 max-w-[260px] whitespace-normal break-words">
                       {r[5] || '—'}
                     </td>
-                    <td className="py-2.5 px-4 text-slate-800 max-w-[260px] break-words">
+                    <td className="py-2.5 px-4 text-slate-800 max-w-[260px] whitespace-normal break-words">
                       {r[6] || '—'}
                     </td>
                   </tr>

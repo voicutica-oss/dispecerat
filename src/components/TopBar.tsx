@@ -19,6 +19,7 @@ const TAB_TITLES: Record<NavTab, string> = {
   curse: 'Curse (Sheet 1)',
   flota: 'Flotă & Remorci',
   remorci_libere: 'Remorci Libere',
+  zile_curse: 'Zile Curse pe Luni',
   vize: 'Vize Medicale',
   concedii: 'Concedii Șoferi',
   istoric_remorci: 'Istoric Remorci',
