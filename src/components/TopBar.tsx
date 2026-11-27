@@ -50,7 +50,7 @@ export function TopBar({
         </button>
         <div className="flex items-center gap-2 text-sm min-w-0">
           <img
-            src="/logo-camion.png"
+            src={`${import.meta.env.BASE_URL}logo-camion.png`}
             alt="Sigla Dispecerat"
             referrerPolicy="no-referrer"
             className="lg:hidden h-7 w-7 rounded-md object-cover shrink-0 ring-1 ring-slate-200"

@@ -67,7 +67,7 @@ export function Sidebar({
         <div className="flex h-14 items-center justify-between px-4 border-b border-slate-200">
           <div className="flex items-center gap-2.5 min-w-0">
             <img
-              src="/logo-camion.png"
+              src={`${import.meta.env.BASE_URL}logo-camion.png`}
               alt="Sigla Dispecerat Transport"
               referrerPolicy="no-referrer"
               className="h-8 w-8 rounded-lg object-cover shrink-0 shadow-xs ring-1 ring-slate-200"

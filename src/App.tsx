@@ -840,6 +840,70 @@ export default function App() {
     }
   };
 
+  const handleSaveTrailerHistory = async (payload: {
+    row: number;
+    values: string[];
+  }) => {
+    const userName = config.user || 'Dispecer';
+    const nowStr = fmtRoDateTime(new Date());
+    const v17 = Array.from({ length: 17 }, (_, i) =>
+      String(payload.values[i] || '')
+    );
+
+    applyLocalData((prev) => {
+      if (pendingSavesRef.current === 0) {
+        preSaveServerLogSigRef.current = JSON.stringify(
+          prev.istoric.slice(-2)
+        );
+      }
+      const nextIstRem = [...(prev.istoricRemorci || [])];
+      const idx = payload.row - 1;
+      const before =
+        idx >= 0 && idx < nextIstRem.length
+          ? nextIstRem[idx].join(' | ')
+          : '';
+      if (idx >= 0 && idx < nextIstRem.length) {
+        if (!v17[0] && nextIstRem[idx][0]) {
+          v17[0] = String(nextIstRem[idx][0]);
+        }
+        nextIstRem[idx] = [...v17];
+      }
+
+      const logRow = [
+        nowStr,
+        userName,
+        'istoric remorci',
+        String(payload.row),
+        'Modificare',
+        before,
+        v17.join(' | '),
+      ];
+
+      recentOptimisticLogsRef.current.push({
+        row: String(payload.row),
+        tab: 'istoric remorci',
+        entry: logRow,
+        createdAt: Date.now(),
+      });
+
+      return {
+        ...prev,
+        istoricRemorci: nextIstRem,
+        istoric: [...prev.istoric, logRow],
+      };
+    });
+
+    if (config.mode === 'live' && config.scriptUrl) {
+      enqueueLiveMutation(config, {
+        key: config.key,
+        user: userName,
+        kind: 'istoricRemorci',
+        row: payload.row,
+        values: v17,
+      });
+    }
+  };
+
   const handleSaveVisa = async (payload: { row?: number; values: string[] }) => {
     setVisaError(null);
     setVisaSaving(false);
@@ -1373,6 +1437,7 @@ export default function App() {
                     setConnectionInitialTab('audit');
                     setConnectionOpen(true);
                   }}
+                  onSaveRow={handleSaveTrailerHistory}
                 />
               )}
 

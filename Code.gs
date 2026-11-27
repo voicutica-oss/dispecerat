@@ -822,7 +822,7 @@ function doGet(e) {
     refreshZileCurseCamion_();
   }
   return out_({
-    scriptVersion: '3.3',
+    scriptVersion: '3.4',
     curse: vals_(TAB_CURSE, 16),
     vize: vizeRows_(),
     flota: vals_(TAB_FLOTA, 12),
@@ -969,6 +969,26 @@ function doPost(e) {
     }
 
     return out_({ error: 'Format lună/valoare invalid' });
+  }
+
+  if (b.kind === 'istoricRemorci') {
+    const sh = sheet_(TAB_IST_REM);
+    if (!sh) return out_({ error: 'Foaia istoric remorci lipsește' });
+    if (sh.getMaxColumns() < 17) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), 17 - sh.getMaxColumns());
+    }
+    const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    const oldRow = b.row ? sh.getRange(row, 1, 1, 17).getDisplayValues()[0] : [];
+    const before = oldRow.length ? oldRow.join(' | ') : '';
+    const v17 = Array.from({ length: 17 }, (_, i) => String(vals[i] || ''));
+    if (!v17[0]) {
+      v17[0] = oldRow[0] ? String(oldRow[0]) : String(Math.max(1, row - 1));
+    }
+    sh.getRange(row, 1, 1, 17).setValues([v17]);
+    invalidateCache_(TAB_IST_REM);
+    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v17.join(' | '));
+    refreshRemorciLibere_();
+    return out_({ ok: true, row });
   }
 
   return out_({ error: 'Acțiune necunoscută' });

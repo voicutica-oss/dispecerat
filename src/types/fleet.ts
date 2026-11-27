@@ -84,7 +84,7 @@ export interface GasMutatePayload {
   action?: 'write';
   key: string;
   user: string;
-  kind: 'curse' | 'vize' | 'concediu' | 'flota';
+  kind: 'curse' | 'vize' | 'concediu' | 'flota' | 'istoricRemorci';
   row?: number;
   values: string[];
   loc?: string;

@@ -241,3 +241,104 @@ export function exportHistoryPdf(rows: string[][], filterSummary: string) {
   addPageNumbers(doc);
   savePdfDoc(doc, `raport-istoric-${fileDateStamp()}.pdf`);
 }
+
+export function exportTrailerHistoryPdf(rows: string[][], filterSummary: string) {
+  const doc = new jsPDF({
+    orientation: 'landscape',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const generatedAt = fmtRoDateTime(new Date());
+  doc.setFontSize(14);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Raport Istoric Remorci - Dispecerat Flota', 10, 13);
+
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    asciiRo(
+      `Generat la: ${generatedAt}  |  Inregistrari afisate: ${rows.length}${
+        filterSummary ? `  |  ${filterSummary}` : ''
+      }`
+    ),
+    10,
+    19
+  );
+
+  const head = [
+    [
+      '#',
+      'Camion',
+      'Rem. predata',
+      'Rem. preluata',
+      'Data prel. ant.',
+      'Predare (Loc / Data)',
+      'Desc. predata',
+      'Sofer preda',
+      'Preia (Cap / Sofer)',
+      'Data preluarii',
+      'Dest. preluata',
+    ],
+  ];
+
+  const body = rows.map((r, idx) => {
+    const predLocData = [r[5], r[6]].filter(Boolean).join(' / ');
+    const descPred = [r[7], r[8], r[9]].filter(Boolean).join(' / ');
+    const capSoferPreia = [r[11], r[12]].filter(Boolean).join('\n');
+    const destPreluata = [r[14], r[15], r[16]].filter(Boolean).join(' / ');
+    return [
+      asciiRo(r[0] || String(idx + 1)),
+      asciiRo(r[1] || '-'),
+      asciiRo(r[2] || '-'),
+      asciiRo(r[3] || '-'),
+      asciiRo(r[4] || '-'),
+      asciiRo(predLocData || '-'),
+      asciiRo(descPred || '-'),
+      asciiRo(r[10] || '-'),
+      asciiRo(capSoferPreia || '-'),
+      asciiRo(r[13] || '-'),
+      asciiRo(destPreluata || '-'),
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 23,
+    head,
+    body,
+    margin: { top: 14, right: 7, bottom: 12, left: 7 },
+    styles: {
+      fontSize: 7,
+      cellPadding: 1.6,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.15,
+      overflow: 'linebreak',
+    },
+    headStyles: {
+      fillColor: [29, 78, 216],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'right' },
+      1: { cellWidth: 22, fontStyle: 'bold' },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 20 },
+      5: { cellWidth: 32 },
+      6: { cellWidth: 34 },
+      7: { cellWidth: 28 },
+      8: { cellWidth: 34 },
+      9: { cellWidth: 20 },
+      10: { cellWidth: 41 },
+    },
+  });
+
+  addPageNumbers(doc);
+  savePdfDoc(doc, `raport-istoric-remorci-${fileDateStamp()}.pdf`);
+}
