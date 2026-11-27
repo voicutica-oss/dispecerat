@@ -822,7 +822,7 @@ function doGet(e) {
     refreshZileCurseCamion_();
   }
   return out_({
-    scriptVersion: '3.4',
+    scriptVersion: '3.5',
     curse: vals_(TAB_CURSE, 16),
     vize: vizeRows_(),
     flota: vals_(TAB_FLOTA, 12),
@@ -831,6 +831,112 @@ function doGet(e) {
     istoricRemorci: vals_(TAB_IST_REM, 17),
     zileCurse: vals_('zile curse camion', 14)
   });
+}
+
+function vizeLayout_(sh) {
+  const lastRow = Math.max(sh.getLastRow(), 1);
+  const lastCol = Math.max(sh.getLastColumn(), 4);
+  const grid = sh.getRange(1, 1, lastRow, lastCol).getDisplayValues();
+  let headerIdx = -1, nrCol = -1, nameCol = -1, docCol = -1, dateCol = -1;
+  for (let i = 0; i < Math.min(3, grid.length); i++) {
+    const r = grid[i] || [];
+    let cNr = -1, cN = -1, cD = -1, cDt = -1;
+    for (let c = 0; c < r.length; c++) {
+      const p = plain_(r[c]);
+      if (!p) continue;
+      if (cNr === -1 && (p === 'nr' || p === 'nr.' || p === 'nr crt' || p === 'crt')) cNr = c;
+      else if (cN === -1 && (p.indexOf('nume') >= 0 || p.indexOf('sofer') >= 0 || p.indexOf('angajat') >= 0)) cN = c;
+      else if (cD === -1 && (p.indexOf('doc') >= 0 || p.indexOf('tip') >= 0 || p.indexOf('viza') >= 0 || p.indexOf('aviz') >= 0 || p.indexOf('atestat') >= 0)) cD = c;
+      else if (cDt === -1 && (p.indexOf('expir') >= 0 || p.indexOf('data') >= 0 || p.indexOf('valab') >= 0)) cDt = c;
+    }
+    if ([cN, cD, cDt].filter(function(x) { return x >= 0; }).length >= 2) {
+      headerIdx = i; nrCol = cNr; nameCol = cN; docCol = cD; dateCol = cDt;
+      break;
+    }
+  }
+  const startIdx = headerIdx >= 0 ? headerIdx + 1 : 1;
+  if (nameCol === -1 || docCol === -1 || dateCol === -1) {
+    const sample = grid.slice(startIdx, startIdx + 15);
+    const hasCol3 = sample.some(function(r) { return Boolean(parseRo_(r[3])); });
+    const hasCol2 = sample.some(function(r) { return Boolean(parseRo_(r[2])); });
+    if (!hasCol3 && hasCol2) {
+      if (nameCol === -1) nameCol = 0;
+      if (docCol === -1) docCol = 1;
+      if (dateCol === -1) dateCol = 2;
+    } else {
+      if (nrCol === -1) nrCol = 0;
+      if (nameCol === -1) nameCol = 1;
+      if (docCol === -1) docCol = 2;
+      if (dateCol === -1) dateCol = 3;
+    }
+  }
+  return { grid: grid, startRow: startIdx + 1, nrCol: nrCol, nameCol: nameCol, docCol: docCol, dateCol: dateCol };
+}
+
+function deleteVizeRowsSafe_(sh, rowMap, user, actionLabel) {
+  const layout = vizeLayout_(sh);
+  const grid = layout.grid;
+  const rowsToDelete = Object.keys(rowMap).map(function(k) { return Number(k); }).filter(function(r) {
+    return r >= layout.startRow && r <= grid.length;
+  });
+  if (rowsToDelete.length === 0) return 0;
+
+  let lastName = '';
+  const beforeSummaries = [];
+  for (let i = layout.startRow - 1; i < grid.length; i++) {
+    const rNum = i + 1;
+    const row = grid[i] || [];
+    const rawN = layout.nameCol >= 0 ? String(row[layout.nameCol] || '').trim() : '';
+    const isNum = /^\d+[.)]?$/.test(rawN);
+    if (rawN && !isNum) lastName = rawN;
+    const effName = rawN && !isNum ? rawN : lastName;
+
+    if (rowMap[rNum]) {
+      beforeSummaries.push([effName, row[layout.docCol] || '', row[layout.dateCol] || ''].filter(Boolean).join(' - '));
+    } else if (!rawN && effName && layout.nameCol >= 0 && i > 0 && rowMap[rNum - 1]) {
+      sh.getRange(rNum, layout.nameCol + 1).setValue(effName);
+    }
+  }
+
+  rowsToDelete.sort(function(a, b) { return b - a; });
+  for (let j = 0; j < rowsToDelete.length; j++) {
+    sh.deleteRow(rowsToDelete[j]);
+  }
+  invalidateCache_(TAB_VIZE);
+  log_(user, sh.getName(), rowsToDelete.length, actionLabel, beforeSummaries.slice(0, 8).join('; ') + (beforeSummaries.length > 8 ? ' ...' : ''), rowsToDelete.length + ' rânduri șterse');
+  return rowsToDelete.length;
+}
+
+function deleteDriverVisasIfRemoved_(driverName, user) {
+  const targetKey = norm_(driverName);
+  if (!targetKey) return;
+  const fl = vals_(TAB_FLOTA, 12);
+  for (let i = 1; i < fl.length; i++) {
+    const c = String((fl[i] && fl[i][2]) || '').trim();
+    if (!c) continue;
+    if (norm_(c) === targetKey || splitDrivers_(c).some(function(p) { return norm_(p) === targetKey; })) {
+      return;
+    }
+  }
+  const shV = sheet_(TAB_VIZE);
+  if (!shV || shV.getLastRow() < 2) return;
+  const layout = vizeLayout_(shV);
+  const grid = layout.grid;
+  const rowMap = {};
+  let lastName = '';
+  for (let i = layout.startRow - 1; i < grid.length; i++) {
+    const row = grid[i] || [];
+    const rawN = layout.nameCol >= 0 ? String(row[layout.nameCol] || '').trim() : '';
+    const isNum = /^\d+[.)]?$/.test(rawN);
+    if (rawN && !isNum) lastName = rawN;
+    const effName = rawN && !isNum ? rawN : lastName;
+    if (!effName) continue;
+    if (norm_(effName) === targetKey || splitDrivers_(effName).some(function(p) { return norm_(p) === targetKey; })) {
+      const hasContent = String(row[layout.docCol] || '').trim() || String(row[layout.dateCol] || '').trim() || rawN;
+      if (hasContent) rowMap[i + 1] = true;
+    }
+  }
+  deleteVizeRowsSafe_(shV, rowMap, user, 'Ștergere Vize (Șofer șters)');
 }
 function doPost(e) {
   const b = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -912,6 +1018,17 @@ function doPost(e) {
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
     const oldRow = b.row ? sh.getRange(row, 1, 1, 12).getDisplayValues()[0] : [];
     const before = oldRow.length ? oldRow.join(' | ') : '';
+    const deletedDriverTarget = String(b.deleteDriverVisas || '').trim();
+    if (b.deleteRow && b.row && row >= 2 && row <= sh.getLastRow()) {
+      sh.deleteRow(row);
+      invalidateCache_(TAB_FLOTA);
+      log_(user, sh.getName(), row, 'Ștergere Flotă', before, '');
+      if (deletedDriverTarget) deleteDriverVisasIfRemoved_(deletedDriverTarget, user);
+      syncSheet1AutoFill_();
+      refreshRemorciLibere_();
+      refreshZileCurseCamion_();
+      return out_({ ok: true, row });
+    }
     const v12 = Array.from({ length: 12 }, (_, i) => {
       const s = String(vals[i] || '');
       if (i === 10 || i === 11) {
@@ -920,9 +1037,11 @@ function doPost(e) {
       }
       return s;
     });
+    sh.getRange(row, 5, 1, 2).setNumberFormat('@');
     sh.getRange(row, 1, 1, 12).setValues([v12]);
     invalidateCache_(TAB_FLOTA);
     log_(user, sh.getName(), row, b.row ? 'Modificare Flotă' : 'Adăugare Flotă', before, v12.map(function(x) { return String(x); }).join(' | '));
+    if (deletedDriverTarget) deleteDriverVisasIfRemoved_(deletedDriverTarget, user);
     syncSheet1AutoFill_();
     refreshRemorciLibere_();
     refreshZileCurseCamion_();
@@ -932,11 +1051,53 @@ function doPost(e) {
   if (b.kind === 'vize') {
     const sh = sheet_(TAB_VIZE);
     if (!sh) return out_({ error: 'Foaia vize medicale lipsește' });
+
+    if (Array.isArray(b.deleteRows) && b.deleteRows.length > 0) {
+      const rowMap = {};
+      for (let i = 0; i < b.deleteRows.length; i++) {
+        const rn = Number(b.deleteRows[i]);
+        if (!isNaN(rn) && rn >= 2) rowMap[rn] = true;
+      }
+      const deletedCount = deleteVizeRowsSafe_(sh, rowMap, user, 'Ștergere Vize');
+      return out_({ ok: true, deletedCount: deletedCount });
+    }
+
+    if (Array.isArray(b.batchValues) && b.batchValues.length > 0) {
+      const layout = vizeLayout_(sh);
+      const startRow = Math.max(sh.getLastRow() + 1, 2);
+      let maxNr = 0;
+      if (layout.nrCol >= 0) {
+        for (let r = layout.startRow - 1; r < layout.grid.length; r++) {
+          const nVal = String((layout.grid[r] && layout.grid[r][layout.nrCol]) || '').trim();
+          if (/^\d+$/.test(nVal)) {
+            const parsedN = parseInt(nVal, 10);
+            if (parsedN > maxNr) maxNr = parsedN;
+          }
+        }
+      }
+      const hasNr = layout.nrCol >= 0;
+      const numCols = hasNr ? 4 : 3;
+      const rowsToWrite = b.batchValues.map(function(item, idx) {
+        const nm = String((item && item[0]) || '').trim();
+        const dc = String((item && item[1]) || '').trim();
+        const dt = String((item && item[2]) || '').trim();
+        return hasNr ? [String(maxNr + idx + 1), nm, dc, dt] : [nm, dc, dt];
+      });
+      const dateSheetCol = hasNr ? 4 : 3;
+      sh.getRange(startRow, dateSheetCol, rowsToWrite.length, 1).setNumberFormat('@');
+      sh.getRange(startRow, 1, rowsToWrite.length, numCols).setValues(rowsToWrite);
+      invalidateCache_(TAB_VIZE);
+      log_(user, sh.getName(), startRow, 'Adăugare Excel (' + rowsToWrite.length + ')', '', rowsToWrite.length + ' vize importate din Excel');
+      return out_({ ok: true, row: startRow, added: rowsToWrite.length });
+    }
+
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
     const before = b.row ? sh.getRange(row, 2, 1, 3).getDisplayValues()[0].join(' | ') : '';
     const v3 = [String(vals[0] || ''), String(vals[1] || ''), String(vals[2] || '')];
     if (!b.row) sh.getRange(row, 1).setValue(row - 1);
+    sh.getRange(row, 4).setNumberFormat('@');
     sh.getRange(row, 2, 1, 3).setValues([v3]);
+    invalidateCache_(TAB_VIZE);
     log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v3.join(' | '));
     return out_({ ok: true, row });
   }

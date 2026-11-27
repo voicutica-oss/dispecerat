@@ -166,6 +166,7 @@ export default function App() {
   const [tripError, setTripError] = useState<string | null>(null);
 
   const [visaModalOpen, setVisaModalOpen] = useState(false);
+  const [visaModalInitialTab, setVisaModalInitialTab] = useState<'single' | 'excel'>('single');
   const [editingVisa, setEditingVisa] = useState<VisaRecord | null>(null);
   const [visaSaving, setVisaSaving] = useState(false);
   const [visaError, setVisaError] = useState<string | null>(null);
@@ -788,7 +789,54 @@ export default function App() {
     }
   };
 
-  const handleSaveFleet = async (payload: { row?: number; values: string[] }) => {
+  const removeVizeRowsSafely = (
+    rawVize: string[][],
+    rowNumbersToDelete: Set<number>
+  ): string[][] => {
+    if (rowNumbersToDelete.size === 0 || rawVize.length === 0) return rawVize;
+    const hdr = rawVize[0] || [];
+    const hasCol3Dates = rawVize
+      .slice(1, 15)
+      .some((r) => Boolean(parseRoDate(r?.[3])));
+    const hasCol2Dates = rawVize
+      .slice(1, 15)
+      .some((r) => Boolean(parseRoDate(r?.[2])));
+    let nameCol = hdr.findIndex((c) => {
+      const p = plainRo(c);
+      return p.includes('nume') || p.includes('sofer') || p.includes('angajat');
+    });
+    if (nameCol === -1) {
+      nameCol = !hasCol3Dates && hasCol2Dates ? 0 : 1;
+    }
+
+    const out: string[][] = [rawVize[0] ? [...rawVize[0]] : []];
+    let lastName = '';
+    for (let i = 1; i < rawVize.length; i++) {
+      const rowNum = i + 1;
+      const r = [...(rawVize[i] || [])];
+      const rawN = String(r[nameCol] || '').trim();
+      const isRowNum = /^\d+[.)]?$/.test(rawN);
+      if (rawN && !isRowNum) lastName = rawN;
+      const effName = rawN && !isRowNum ? rawN : lastName;
+
+      if (rowNumbersToDelete.has(rowNum)) {
+        continue;
+      }
+      if (!rawN && effName && rowNumbersToDelete.has(rowNum - 1)) {
+        while (r.length <= nameCol) r.push('');
+        r[nameCol] = effName;
+      }
+      out.push(r);
+    }
+    return out;
+  };
+
+  const handleSaveFleet = async (payload: {
+    row?: number;
+    values: string[];
+    deleteRow?: boolean;
+    deleteDriverVisas?: string;
+  }) => {
     const userName = config.user || 'Dispecer';
     const nowStr = fmtRoDateTime(new Date());
 
@@ -801,31 +849,91 @@ export default function App() {
       const nextFlota = [...prev.flota];
       const rowNum = payload.row || nextFlota.length + 1;
       let before = '';
-      if (payload.row && payload.row - 1 < nextFlota.length) {
+      if (payload.deleteRow && payload.row && payload.row - 1 < nextFlota.length) {
+        before = nextFlota[payload.row - 1].join(' | ');
+        nextFlota.splice(payload.row - 1, 1);
+      } else if (payload.row && payload.row - 1 < nextFlota.length) {
         before = nextFlota[payload.row - 1].join(' | ');
         nextFlota[payload.row - 1] = [...payload.values];
       } else {
         nextFlota.push([...payload.values]);
       }
+      const actionLabel = payload.deleteRow
+        ? 'Ștergere Flotă'
+        : payload.row
+          ? 'Modificare Flotă'
+          : 'Adăugare Flotă';
       const logRow = [
         nowStr,
         userName,
         'flota',
         String(rowNum),
-        payload.row ? 'Modificare Flotă' : 'Adăugare Flotă',
+        actionLabel,
         before,
-        payload.values.join(' | '),
+        payload.deleteRow ? '' : payload.values.join(' | '),
       ];
+      const extraLogs: string[][] = [logRow];
       recentOptimisticLogsRef.current.push({
         row: String(rowNum),
         tab: 'flota',
         entry: logRow,
         createdAt: Date.now(),
       });
+
+      let nextVize = prev.vize;
+      const targetDriver = String(payload.deleteDriverVisas || '').trim();
+      if (targetDriver) {
+        const targetKeys = new Set(
+          [normRo(targetDriver), ...splitDrivers(targetDriver).map(normRo)].filter(
+            Boolean
+          )
+        );
+        const stillInFleet = nextFlota.slice(1).some((r) => {
+          const c = String(r?.[2] || '').trim();
+          if (!c) return false;
+          if (targetKeys.has(normRo(c))) return true;
+          return splitDrivers(c).some((p) => targetKeys.has(normRo(p)));
+        });
+        if (!stillInFleet) {
+          const parsedPrevVisas = parseVisas(prev.vize);
+          const toDeleteSet = new Set<number>();
+          parsedPrevVisas.forEach((v) => {
+            const vn = String(v.cells[1] || '').trim();
+            if (!vn) return;
+            if (
+              targetKeys.has(normRo(vn)) ||
+              splitDrivers(vn).some((p) => targetKeys.has(normRo(p)))
+            ) {
+              toDeleteSet.add(v.rowIndex);
+            }
+          });
+          if (toDeleteSet.size > 0) {
+            nextVize = removeVizeRowsSafely(prev.vize, toDeleteSet);
+            const visaLog = [
+              nowStr,
+              userName,
+              'vize medicale',
+              String(toDeleteSet.size),
+              'Ștergere Vize (Șofer șters)',
+              `${targetDriver} (${toDeleteSet.size} vize)`,
+              `${toDeleteSet.size} rânduri șterse`,
+            ];
+            extraLogs.push(visaLog);
+            recentOptimisticLogsRef.current.push({
+              row: String(toDeleteSet.size),
+              tab: 'vize medicale',
+              entry: visaLog,
+              createdAt: Date.now(),
+            });
+          }
+        }
+      }
+
       return {
         ...prev,
         flota: nextFlota,
-        istoric: [...prev.istoric, logRow],
+        vize: nextVize,
+        istoric: [...prev.istoric, ...extraLogs],
       };
     });
 
@@ -836,6 +944,8 @@ export default function App() {
         kind: 'flota',
         row: payload.row,
         values: payload.values,
+        deleteRow: payload.deleteRow,
+        deleteDriverVisas: payload.deleteDriverVisas,
       });
     }
   };
@@ -965,6 +1075,136 @@ export default function App() {
         kind: 'vize',
         row: payload.row,
         values: payload.values,
+      });
+    }
+  };
+
+  const handleBatchSaveVisas = async (batchRows: string[][]) => {
+    if (!batchRows || batchRows.length === 0) return;
+    setVisaError(null);
+    setVisaSaving(false);
+
+    const userName = config.user || 'Dispecer';
+    const nowStr = fmtRoDateTime(new Date());
+
+    applyLocalData((prev) => {
+      if (pendingSavesRef.current === 0) {
+        preSaveServerLogSigRef.current = JSON.stringify(
+          prev.istoric.slice(-2)
+        );
+      }
+      const nextVize = [...prev.vize];
+      const hdr = nextVize[0] || [];
+      const hasNrCol =
+        hdr.length >= 4 ||
+        hdr.some((c) => {
+          const p = plainRo(c);
+          return p === 'nr' || p === 'nr.' || p === 'nr crt' || p === 'crt';
+        });
+      let maxNr = 0;
+      for (let i = 1; i < nextVize.length; i++) {
+        const a = String(nextVize[i]?.[0] || '').trim();
+        if (/^\d+$/.test(a)) maxNr = Math.max(maxNr, parseInt(a, 10));
+      }
+      const startRowNum = nextVize.length + 1;
+      batchRows.forEach((vals, idx) => {
+        const clean = [
+          String(vals[0] || '').trim(),
+          String(vals[1] || '').trim(),
+          String(vals[2] || '').trim(),
+        ];
+        if (hasNrCol) {
+          nextVize.push([String(maxNr + idx + 1), ...clean]);
+        } else {
+          nextVize.push(clean);
+        }
+      });
+
+      const logRow = [
+        nowStr,
+        userName,
+        'vize medicale',
+        String(startRowNum),
+        `Adăugare Excel (${batchRows.length})`,
+        '',
+        `${batchRows.length} vize importate din Excel`,
+      ];
+      recentOptimisticLogsRef.current.push({
+        row: String(startRowNum),
+        tab: 'vize medicale',
+        entry: logRow,
+        createdAt: Date.now(),
+      });
+
+      return {
+        ...prev,
+        vize: nextVize,
+        istoric: [...prev.istoric, logRow],
+      };
+    });
+
+    setVisaModalOpen(false);
+    setEditingVisa(null);
+
+    if (config.mode === 'live' && config.scriptUrl) {
+      enqueueLiveMutation(config, {
+        key: config.key,
+        user: userName,
+        kind: 'vize',
+        values: [],
+        batchValues: batchRows,
+      });
+    }
+  };
+
+  const handleDeletePrevMonthVisas = async (targets: VisaRecord[]) => {
+    if (!targets || targets.length === 0) return;
+    const userName = config.user || 'Dispecer';
+    const nowStr = fmtRoDateTime(new Date());
+    const rowSet = new Set(targets.map((t) => t.rowIndex));
+    const rowIndices = Array.from(rowSet).sort((a, b) => b - a);
+
+    applyLocalData((prev) => {
+      if (pendingSavesRef.current === 0) {
+        preSaveServerLogSigRef.current = JSON.stringify(
+          prev.istoric.slice(-2)
+        );
+      }
+      const nextVize = removeVizeRowsSafely(prev.vize, rowSet);
+      const summary = targets
+        .slice(0, 6)
+        .map((t) => `${t.cells[1]} (${t.cells[3]})`)
+        .join('; ');
+      const logRow = [
+        nowStr,
+        userName,
+        'vize medicale',
+        String(rowIndices.length),
+        'Ștergere Vize',
+        summary + (targets.length > 6 ? ' ...' : ''),
+        `${rowIndices.length} rânduri șterse`,
+      ];
+      recentOptimisticLogsRef.current.push({
+        row: String(rowIndices.length),
+        tab: 'vize medicale',
+        entry: logRow,
+        createdAt: Date.now(),
+      });
+
+      return {
+        ...prev,
+        vize: nextVize,
+        istoric: [...prev.istoric, logRow],
+      };
+    });
+
+    if (config.mode === 'live' && config.scriptUrl) {
+      enqueueLiveMutation(config, {
+        key: config.key,
+        user: userName,
+        kind: 'vize',
+        values: [],
+        deleteRows: rowIndices,
       });
     }
   };
@@ -1374,6 +1614,7 @@ export default function App() {
                   freeTrailers={freeTrailers}
                   trips={trips}
                   leaves={leaves}
+                  visas={visas}
                   onlyCheckedBifa={fleetOnlyCheckedBifa}
                   onOnlyCheckedBifaChange={handleFleetBifaChange}
                   onSaveFleet={handleSaveFleet}
@@ -1396,16 +1637,19 @@ export default function App() {
                 <VisasView
                   headers={data.vize[0] || []}
                   visas={visas}
-                  onAddVisa={() => {
+                  onAddVisa={(initialTab = 'single') => {
                     setEditingVisa(null);
                     setVisaError(null);
+                    setVisaModalInitialTab(initialTab);
                     setVisaModalOpen(true);
                   }}
                   onEditVisa={(visa) => {
                     setEditingVisa(visa);
                     setVisaError(null);
+                    setVisaModalInitialTab('single');
                     setVisaModalOpen(true);
                   }}
+                  onDeletePrevMonthVisas={handleDeletePrevMonthVisas}
                 />
               )}
 
@@ -1469,6 +1713,7 @@ export default function App() {
       <VisaModal
         open={visaModalOpen}
         visa={editingVisa}
+        initialTab={visaModalInitialTab}
         headers={data.vize[0] || []}
         flota={data.flota}
         saving={visaSaving}
@@ -1478,6 +1723,7 @@ export default function App() {
           setEditingVisa(null);
         }}
         onSave={handleSaveVisa}
+        onSaveBatch={handleBatchSaveVisas}
       />
 
       <LeaveModal

@@ -615,6 +615,17 @@ export function buildFleetAutoFillIndex(flota: string[][]): FleetAutoFillIndex {
   >();
   const bySofer = new Map<string, { e: string; f: string }>();
 
+  const registerDriver = (key: string, e: string, f: string, overwriteEmptyOnly = true) => {
+    if (!key) return;
+    const existing = bySofer.get(key);
+    if (!existing) {
+      bySofer.set(key, { e, f });
+    } else if (overwriteEmptyOnly) {
+      if (!existing.e && e) existing.e = e;
+      if (!existing.f && f) existing.f = f;
+    }
+  };
+
   for (let i = 1; i < (flota?.length || 0); i++) {
     const r = flota[i] || [];
     const a = String(r[0] || '').trim();
@@ -635,13 +646,21 @@ export function buildFleetAutoFillIndex(flota: string[][]): FleetAutoFillIndex {
     }
     const kSof = normRo(c);
     if (kSof) {
-      const existing = bySofer.get(kSof);
-      if (!existing) {
-        bySofer.set(kSof, { e, f });
-      } else {
-        if (!existing.e && e) existing.e = e;
-        if (!existing.f && f) existing.f = f;
-      }
+      registerDriver(kSof, e, f, true);
+    }
+  }
+
+  // Fallback pass: index individual drivers from multi-driver cells (e.g. "SOFER 1, SOFER 2")
+  for (let i = 1; i < (flota?.length || 0); i++) {
+    const r = flota[i] || [];
+    const c = String(r[2] || '').trim();
+    if (!c) continue;
+    const parts = splitDrivers(c);
+    if (parts.length <= 1) continue;
+    const e = String(r[4] || '').trim();
+    const f = String(r[5] || '').trim();
+    for (const part of parts) {
+      registerDriver(normRo(part), e, f, true);
     }
   }
 

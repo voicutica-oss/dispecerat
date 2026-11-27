@@ -1,4 +1,12 @@
-import { Edit3, Plus, Search } from 'lucide-react';
+import {
+  AlertTriangle,
+  Edit3,
+  FileSpreadsheet,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useMobileViewMode } from '../hooks/useMobileViewMode';
 import {
@@ -6,16 +14,32 @@ import {
   type TableColSpec,
 } from '../hooks/useResizableColumns';
 import type { VisaRecord } from '../types/fleet';
-import { plainRo, resolveVisaColHeaders } from '../utils/roDates';
+import { plainRo, resolveVisaColHeaders, todayRo } from '../utils/roDates';
 import { MobileViewToggle } from './MobileViewToggle';
 import { ResizableTh } from './ResizableTh';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
+const MONTHS_LOWER_RO = [
+  'ianuarie',
+  'februarie',
+  'martie',
+  'aprilie',
+  'mai',
+  'iunie',
+  'iulie',
+  'august',
+  'septembrie',
+  'octombrie',
+  'noiembrie',
+  'decembrie',
+];
+
 interface VisasViewProps {
   headers: string[];
   visas: VisaRecord[];
-  onAddVisa: () => void;
+  onAddVisa: (initialTab?: 'single' | 'excel') => void;
   onEditVisa: (visa: VisaRecord) => void;
+  onDeletePrevMonthVisas: (targets: VisaRecord[]) => Promise<void>;
 }
 
 const VISA_COLS: TableColSpec[] = [
@@ -32,10 +56,13 @@ export function VisasView({
   visas,
   onAddVisa,
   onEditVisa,
+  onDeletePrevMonthVisas,
 }: VisasViewProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'expired' | 'expiring' | 'valid'>('all');
   const [mobileView, setMobileView] = useMobileViewMode('vize', 'cards');
+  const [confirmPrevOpen, setConfirmPrevOpen] = useState(false);
+  const [deletingPrev, setDeletingPrev] = useState(false);
 
   const {
     widths,
@@ -54,6 +81,21 @@ export function VisasView({
 
   const allHeaders = [...colHeaders, 'Valabilitate', 'Acțiune'];
 
+  const prevMonthInfo = useMemo(() => {
+    const azi = todayRo();
+    const prevDate = new Date(azi.getFullYear(), azi.getMonth() - 1, 1);
+    const prevMonth = prevDate.getMonth();
+    const prevYear = prevDate.getFullYear();
+    const label = MONTHS_LOWER_RO[prevMonth] || `luna ${prevMonth + 1}`;
+    const targets = visas.filter(
+      (v) =>
+        v.expiryDate !== null &&
+        v.expiryDate.getMonth() === prevMonth &&
+        v.expiryDate.getFullYear() === prevYear
+    );
+    return { prevMonth, prevYear, label, targets };
+  }, [visas]);
+
   const filtered = useMemo(() => {
     const q = plainRo(search);
     return visas
@@ -65,9 +107,20 @@ export function VisasView({
       .sort((a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
   }, [visas, search, filter]);
 
+  const handleConfirmDeletePrevMonth = async () => {
+    if (deletingPrev || prevMonthInfo.targets.length === 0) return;
+    setDeletingPrev(true);
+    try {
+      await onDeletePrevMonthVisas(prevMonthInfo.targets);
+      setConfirmPrevOpen(false);
+    } finally {
+      setDeletingPrev(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] sm:w-72">
             <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -105,11 +158,32 @@ export function VisasView({
           </div>
         </div>
 
-        <div className="flex items-center justify-between lg:justify-end gap-2.5">
+        <div className="flex flex-wrap items-center justify-between xl:justify-end gap-2">
           <MobileViewToggle mode={mobileView} onChange={setMobileView} />
           <button
             type="button"
-            onClick={onAddVisa}
+            onClick={() => setConfirmPrevOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors whitespace-nowrap"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Șterge {prevMonthInfo.label}</span>
+            {prevMonthInfo.targets.length > 0 && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-red-600 text-white rounded tabular-nums">
+                {prevMonthInfo.targets.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => onAddVisa('excel')}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors whitespace-nowrap"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <span>Import tabel Excel</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onAddVisa('single')}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -294,6 +368,104 @@ export function VisasView({
           </>
         )}
       </div>
+
+      {confirmPrevOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50">
+          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md shadow-xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="h-9 w-9 rounded-lg bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-display text-base font-semibold text-slate-900">
+                    Ștergere vize din luna anterioară
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Luna vizată:{' '}
+                    <strong className="capitalize">
+                      {prevMonthInfo.label} {prevMonthInfo.prevYear}
+                    </strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmPrevOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded"
+                aria-label="Închide"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {prevMonthInfo.targets.length === 0 ? (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+                Nu există nicio viză medicală cu data expirării în luna{' '}
+                <strong>
+                  {prevMonthInfo.label} {prevMonthInfo.prevYear}
+                </strong>
+                .
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-slate-700">
+                  Ești sigur că vrei să ștergi cele{' '}
+                  <strong>{prevMonthInfo.targets.length}</strong> vize medicale
+                  din luna{' '}
+                  <strong>
+                    {prevMonthInfo.label} {prevMonthInfo.prevYear}
+                  </strong>
+                  ?
+                </p>
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50">
+                  {prevMonthInfo.targets.map((v) => (
+                    <div
+                      key={v.rowIndex}
+                      className="px-3 py-2 text-xs flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900 truncate">
+                          {v.cells[1] || '—'}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {v.cells[2] || '—'}
+                        </div>
+                      </div>
+                      <span className="font-mono text-[11px] text-red-700 shrink-0 tabular-nums">
+                        {v.cells[3]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingPrev}
+                onClick={() => setConfirmPrevOpen(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+              >
+                {prevMonthInfo.targets.length === 0 ? 'Închide' : 'Anulează'}
+              </button>
+              {prevMonthInfo.targets.length > 0 && (
+                <button
+                  type="button"
+                  disabled={deletingPrev}
+                  onClick={handleConfirmDeletePrevMonth}
+                  className="px-4 py-2 text-xs font-medium text-white bg-red-700 rounded-lg hover:bg-red-800 disabled:opacity-50"
+                >
+                  {deletingPrev
+                    ? 'Se șterg...'
+                    : `Șterge (${prevMonthInfo.targets.length})`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

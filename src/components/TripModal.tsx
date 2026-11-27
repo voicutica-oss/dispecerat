@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { LeaveRecord, TripRecord } from '../types/fleet';
 import {
   buildAdrDriversSet,
+  buildFleetAutoFillIndex,
   computeFleetAutoFill,
   computeTripDays,
   fmtRoDate,
@@ -13,6 +14,7 @@ import {
   normRo,
   parteNr,
   plainRo,
+  resolveFleetAutoFillFromIndex,
   roToIsoDate,
   SHEET1_DEFAULT_HEADERS,
   splitDrivers,
@@ -76,6 +78,7 @@ export function TripModal({
   const [localError, setLocalError] = useState<string | null>(null);
 
   const adrDrivers = useMemo(() => buildAdrDriversSet(flota), [flota]);
+  const fleetAutoIndex = useMemo(() => buildFleetAutoFillIndex(flota), [flota]);
 
   const fleetLists = useMemo(() => {
     const trucks = new Set<string>();
@@ -320,11 +323,27 @@ export function TripModal({
       setRezerva('');
       return;
     }
-    const auto = computeFleetAutoFill(
-      { camion, remorca, soferi: combined },
-      flota
+
+    const origCombined = trip ? splitDrivers(trip.cells[7]).join(', ') : '';
+    if (trip && origCombined && normRo(combined) === normRo(origCombined)) {
+      const origAuto = resolveFleetAutoFillFromIndex(
+        { camion, remorca, soferi: combined },
+        fleetAutoIndex
+      );
+      setTelefon(trip.cells[8] || origAuto.telefon);
+      setRezerva(trip.cells[9] || origAuto.rezerva);
+      return;
+    }
+
+    const enteredDrivers = [nextS1.trim(), nextS2.trim()].filter(Boolean);
+    const anyMatchedInFleet = enteredDrivers.some((d) =>
+      fleetAutoIndex.bySofer.has(normRo(d))
     );
-    if (auto.telefon || auto.rezerva) {
+    if (anyMatchedInFleet) {
+      const auto = resolveFleetAutoFillFromIndex(
+        { camion, remorca, soferi: combined },
+        fleetAutoIndex
+      );
       setTelefon(auto.telefon);
       setRezerva(auto.rezerva);
     }
@@ -455,6 +474,12 @@ export function TripModal({
     dataLowerLive !== 'curte' && dataLowerLive !== 'sofer' && !isNewSwap;
   const sofer1Adr = hasDriverAdr(sofer1, adrDrivers);
   const sofer2Adr = hasDriverAdr(sofer2, adrDrivers);
+  const sofer1Known = Boolean(
+    sofer1.trim() && fleetAutoIndex.bySofer.has(normRo(sofer1))
+  );
+  const sofer2Known = Boolean(
+    sofer2.trim() && fleetAutoIndex.bySofer.has(normRo(sofer2))
+  );
   const liveTripDays = computeTripDays(dataIncarcarii, dataText);
 
   return (
@@ -622,12 +647,17 @@ export function TripModal({
                 <label className="text-xs font-medium text-slate-700">
                   {labelFor(7, 'nume sofer')} (Șofer 1)
                 </label>
-                {sofer1Adr && (
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold">
-                    <Flame className="h-3 w-3 text-orange-600" />
-                    ADR
-                  </span>
-                )}
+                {sofer1.trim() &&
+                  (sofer1Adr ? (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold">
+                      <Flame className="h-3 w-3 text-orange-600" />
+                      Cu ADR
+                    </span>
+                  ) : sofer1Known ? (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium">
+                      Fără ADR
+                    </span>
+                  ) : null)}
               </div>
               <input
                 type="text"
@@ -649,12 +679,17 @@ export function TripModal({
                 <label className="text-xs font-medium text-slate-700">
                   Șofer 2 (opțional · echipaj dublu)
                 </label>
-                {sofer2Adr && (
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold">
-                    <Flame className="h-3 w-3 text-orange-600" />
-                    ADR
-                  </span>
-                )}
+                {sofer2.trim() &&
+                  (sofer2Adr ? (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-bold">
+                      <Flame className="h-3 w-3 text-orange-600" />
+                      Cu ADR
+                    </span>
+                  ) : sofer2Known ? (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium">
+                      Fără ADR
+                    </span>
+                  ) : null)}
               </div>
               <input
                 type="text"
@@ -666,6 +701,41 @@ export function TripModal({
               />
             </div>
           </div>
+
+          {(sofer1Known || sofer2Known) && (
+            <div className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>
+                  <span className="text-slate-500">Telefon:</span>{' '}
+                  <strong className="font-mono text-slate-900">
+                    {telefon.trim() || '—'}
+                  </strong>
+                </span>
+                {rezerva.trim() && (
+                  <span>
+                    <span className="text-slate-500">Rezervă:</span>{' '}
+                    <strong className="font-mono text-slate-900">
+                      {rezerva.trim()}
+                    </strong>
+                  </span>
+                )}
+              </div>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                  sofer1Adr || sofer2Adr
+                    ? 'bg-orange-100 text-orange-800 border-orange-300'
+                    : 'bg-white text-slate-600 border-slate-200'
+                }`}
+              >
+                {(sofer1Adr || sofer2Adr) && (
+                  <Flame className="h-3 w-3 text-orange-600" />
+                )}
+                {sofer1Adr || sofer2Adr
+                  ? 'Bifă ADR: DA (din Flotă)'
+                  : 'Bifă ADR: NU'}
+              </span>
+            </div>
+          )}
 
           {liveHints.length > 0 && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 space-y-1">

@@ -211,7 +211,7 @@ export function ConnectionModal({
             {config.mode === 'live' && !error && !scriptOutdated && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2.5 text-xs text-emerald-800">
                 <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>Conectat la Google Sheets Live (versiunea 3.4 bidirecțională).</span>
+                <span>Conectat la Google Sheets Live (versiunea 3.5 bidirecțională).</span>
               </div>
             )}
 

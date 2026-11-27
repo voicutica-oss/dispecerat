@@ -1,19 +1,36 @@
-import { FileSpreadsheet, Flame, Plus, Search } from 'lucide-react';
+import {
+  AlertTriangle,
+  FileSpreadsheet,
+  FileText,
+  Flame,
+  Search,
+  Trash2,
+  Truck,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import {
   useResizableColumns,
   type TableColSpec,
 } from '../hooks/useResizableColumns';
-import type { FreeTrailer, LeaveRecord, TripRecord } from '../types/fleet';
+import type {
+  FreeTrailer,
+  LeaveRecord,
+  TripRecord,
+  VisaRecord,
+} from '../types/fleet';
 import { exportToCsv } from '../utils/excelExport';
+import { exportFleetPdf, exportFreeTrailersPdf } from '../utils/pdfExport';
 import {
   FLOTA_DEFAULT_HEADERS,
   isSheetCheckboxTrue,
   normRemKey,
   normRo,
   plainRo,
+  splitDrivers,
 } from '../utils/roDates';
-import { FleetModal } from './FleetModal';
+import { FleetModal, type FleetAddMode } from './FleetModal';
 import { ResizableTh } from './ResizableTh';
 import { SyncedScrollTable } from './SyncedScrollTable';
 
@@ -22,9 +39,15 @@ interface FleetViewProps {
   freeTrailers: FreeTrailer[];
   trips: TripRecord[];
   leaves: LeaveRecord[];
+  visas?: VisaRecord[];
   onlyCheckedBifa: boolean;
   onOnlyCheckedBifaChange: (checked: boolean) => void;
-  onSaveFleet: (payload: { row?: number; values: string[] }) => Promise<void>;
+  onSaveFleet: (payload: {
+    row?: number;
+    values: string[];
+    deleteRow?: boolean;
+    deleteDriverVisas?: string;
+  }) => Promise<void>;
 }
 
 const FLOTA_COLS: TableColSpec[] = [
@@ -37,7 +60,7 @@ const FLOTA_COLS: TableColSpec[] = [
   { id: 'an_fabricatie', defaultWidth: 96, minWidth: 68, maxWidth: 180 },
   { id: 'tip_auto', defaultWidth: 126, minWidth: 80, maxWidth: 240 },
   { id: 'situatie', defaultWidth: 210, minWidth: 120, maxWidth: 420, flex: true },
-  { id: 'actiuni', defaultWidth: 98, minWidth: 84, maxWidth: 160 },
+  { id: 'actiuni', defaultWidth: 158, minWidth: 138, maxWidth: 210 },
 ];
 
 const FLOTA_LIBERE_COLS: TableColSpec[] = [
@@ -53,6 +76,7 @@ export function FleetView({
   freeTrailers,
   trips,
   leaves,
+  visas = [],
   onlyCheckedBifa,
   onOnlyCheckedBifaChange,
   onSaveFleet,
@@ -62,10 +86,16 @@ export function FleetView({
   const [adrFilter, setAdrFilter] = useState<'all' | 'with' | 'without'>('all');
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [addMode, setAddMode] = useState<FleetAddMode>('full');
   const [editingRow, setEditingRow] = useState<{
     rowIdx: number;
     cells: string[];
   } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    rowIdx: number;
+    cells: string[];
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const flotaResize = useResizableColumns('flota', FLOTA_COLS);
   const libereResize = useResizableColumns('flota_libere', FLOTA_LIBERE_COLS);
@@ -148,21 +178,46 @@ export function FleetView({
     );
   }, [freeTrailers, search]);
 
+  const getFleetRowStatus = (cells: string[]) => {
+    const remKey = normRemKey(cells[1]);
+    const activeTrip = remKey ? activeTrailerSet.get(remKey) : undefined;
+    return activeTrip
+      ? `În cursă - ${activeTrip.tara} ${activeTrip.localitate}`
+      : remKey
+        ? 'Remorcă liberă'
+        : cells[2] && !cells[0]
+          ? 'Șofer fără vehicul'
+          : '—';
+  };
+
   const handleExportFleetExcel = () => {
     exportToCsv(
       'flota-vehicule',
       [...headers, 'ADR', 'Situație cursă'],
       fleetRows.map((r) => {
-        const remKey = normRemKey(r.cells[1]);
-        const activeTrip = remKey ? activeTrailerSet.get(remKey) : undefined;
-        const status = activeTrip
-          ? `În cursă - ${activeTrip.tara} ${activeTrip.localitate}`
-          : remKey
-          ? 'Remorcă liberă'
-          : '—';
         const adr = isSheetCheckboxTrue(r.cells[11]) ? 'ADR' : '';
-        return [...r.cells.slice(0, 8), adr, status];
+        return [...r.cells.slice(0, 8), adr, getFleetRowStatus(r.cells)];
       })
+    );
+  };
+
+  const buildFleetFilterSummary = () => {
+    const parts: string[] = [];
+    if (onlyCheckedBifa) parts.push('Doar cu bifa (col. K)');
+    if (adrFilter === 'with') parts.push('Cu ADR');
+    else if (adrFilter === 'without') parts.push('Fara ADR');
+    if (search.trim()) parts.push(`Cautare: "${search.trim()}"`);
+    return parts.join(' | ');
+  };
+
+  const handleExportFleetPdf = () => {
+    exportFleetPdf(
+      fleetRows.map((r) => ({
+        cells: r.cells,
+        status: getFleetRowStatus(r.cells),
+      })),
+      headers,
+      buildFleetFilterSummary()
     );
   };
 
@@ -180,6 +235,81 @@ export function FleetView({
     );
   };
 
+  const handleExportFreePdf = () => {
+    exportFreeTrailersPdf(
+      filteredFree,
+      search.trim() ? `Cautare: "${search.trim()}"` : ''
+    );
+  };
+
+  const openAddModal = (mode: FleetAddMode) => {
+    setEditingRow(null);
+    setAddMode(mode);
+    setModalOpen(true);
+  };
+
+  const applyDeleteAction = async (
+    action: 'driver' | 'truck' | 'trailer' | 'vehicle' | 'row'
+  ) => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      const next = [...deleteTarget.cells];
+      const targetDriverName = deleteTarget.cells[2].trim();
+      if (action === 'row') {
+        await onSaveFleet({
+          row: deleteTarget.rowIdx,
+          values: [],
+          deleteRow: true,
+          deleteDriverVisas: targetDriverName || undefined,
+        });
+        setDeleteTarget(null);
+        return;
+      }
+
+      if (action === 'driver') {
+        next[2] = '';
+        next[4] = '';
+        next[5] = '';
+        next[11] = 'FALSE';
+      } else if (action === 'truck') {
+        next[0] = '';
+        next[6] = '';
+      } else if (action === 'trailer') {
+        next[1] = '';
+      } else if (action === 'vehicle') {
+        next[0] = '';
+        next[1] = '';
+        next[3] = '';
+        next[6] = '';
+        next[7] = '';
+      }
+
+      const hasAnyEntity = Boolean(
+        next[0].trim() || next[1].trim() || next[2].trim()
+      );
+      if (!hasAnyEntity) {
+        await onSaveFleet({
+          row: deleteTarget.rowIdx,
+          values: [],
+          deleteRow: true,
+          deleteDriverVisas:
+            action === 'driver' && targetDriverName ? targetDriverName : undefined,
+        });
+      } else {
+        await onSaveFleet({
+          row: deleteTarget.rowIdx,
+          values: next,
+          deleteDriverVisas:
+            action === 'driver' && targetDriverName ? targetDriverName : undefined,
+        });
+      }
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const flotaHeaderLabels = [...headers.slice(0, 8), 'Situație cursă', 'Acțiuni'];
   const libereHeaderLabels = [
     'Nr. crt.',
@@ -188,6 +318,22 @@ export function FleetView({
     'Ultimul șofer',
     'Situație',
   ];
+
+  const deleteHasTruck = Boolean(deleteTarget?.cells[0]?.trim());
+  const deleteHasTrailer = Boolean(deleteTarget?.cells[1]?.trim());
+  const deleteHasVehicle = deleteHasTruck || deleteHasTrailer;
+  const deleteHasDriver = Boolean(deleteTarget?.cells[2]?.trim());
+  const deleteDriverVisasCount = useMemo(() => {
+    const rawDrv = deleteTarget?.cells[2]?.trim() || '';
+    if (!rawDrv) return 0;
+    const keys = new Set([normRo(rawDrv), ...splitDrivers(rawDrv).map(normRo)].filter(Boolean));
+    return visas.filter((v) => {
+      const vName = String(v.cells[1] || '').trim();
+      if (!vName) return false;
+      if (keys.has(normRo(vName))) return true;
+      return splitDrivers(vName).some((p) => keys.has(normRo(p)));
+    }).length;
+  }, [deleteTarget, visas]);
 
   return (
     <div className="space-y-4">
@@ -281,38 +427,61 @@ export function FleetView({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {subTab === 'flota' ? (
             <>
               <button
                 type="button"
                 onClick={handleExportFleetExcel}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 whitespace-nowrap"
               >
                 <FileSpreadsheet className="h-4 w-4" />
                 <span>Export Excel</span>
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setEditingRow(null);
-                  setModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800"
+                onClick={handleExportFleetPdf}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 whitespace-nowrap"
               >
-                <Plus className="h-4 w-4" />
-                <span>Adaugă vehicul</span>
+                <FileText className="h-4 w-4" />
+                <span>Export PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openAddModal('driver')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 whitespace-nowrap"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span>Adaugă șofer</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openAddModal('vehicle')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 whitespace-nowrap"
+              >
+                <Truck className="h-4 w-4" />
+                <span>Adaugă camion / remorcă</span>
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={handleExportFreeExcel}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>Export Excel</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleExportFreeExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 whitespace-nowrap"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Export Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportFreePdf}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 whitespace-nowrap"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Export PDF</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -447,21 +616,37 @@ export function FleetView({
                             <span className="text-slate-500">
                               Remorcă liberă
                             </span>
+                          ) : row.cells[2] && !row.cells[0] ? (
+                            <span className="text-slate-500">
+                              Șofer fără vehicul
+                            </span>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingRow(row);
-                              setModalOpen(true);
-                            }}
-                            className="px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100"
-                          >
-                            Modifică
-                          </button>
+                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingRow(row);
+                                setAddMode('full');
+                                setModalOpen(true);
+                              }}
+                              className="px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100"
+                            >
+                              Modifică
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(row)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100"
+                              title="Șterge șofer, camion, remorcă sau rând"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              <span>Șterge</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -555,10 +740,148 @@ export function FleetView({
         </div>
       )}
 
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50">
+          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md shadow-xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="h-9 w-9 rounded-lg bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-display text-base font-semibold text-slate-900">
+                    Ce dorești să ștergi (Rând {deleteTarget.rowIdx})?
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Poți șterge separat doar șoferul, doar camionul/remorca sau tot rândul.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded"
+                aria-label="Închide"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 space-y-1">
+              {deleteHasTruck && (
+                <div>
+                  Camion: <strong className="font-mono">{deleteTarget.cells[0]}</strong>
+                </div>
+              )}
+              {deleteHasTrailer && (
+                <div>
+                  Remorcă: <strong className="font-mono">{deleteTarget.cells[1]}</strong>
+                </div>
+              )}
+              {deleteHasDriver && (
+                <div>
+                  Șofer: <strong>{deleteTarget.cells[2]}</strong>
+                </div>
+              )}
+              {deleteHasDriver && (
+                <div className="pt-1 text-[11px] text-amber-800 font-medium">
+                  {deleteDriverVisasCount > 0
+                    ? `Atenție: la ștergerea șoferului sau a rândului se vor șterge automat și cele ${deleteDriverVisasCount} vize medicale ale acestui șofer.`
+                    : 'La ștergerea șoferului se șterg automat și eventualele vize medicale asociate.'}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              {deleteHasDriver && deleteHasVehicle && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => applyDeleteAction('driver')}
+                  className="w-full text-left px-3.5 py-2.5 text-xs font-medium text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-900 transition-colors disabled:opacity-50"
+                >
+                  <div>Șterge doar șoferul („{deleteTarget.cells[2]}”)</div>
+                  <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                    Camionul și remorca rămân neschimbate pe acest rând.
+                  </div>
+                </button>
+              )}
+
+              {deleteHasTruck && (deleteHasTrailer || deleteHasDriver) && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => applyDeleteAction('truck')}
+                  className="w-full text-left px-3.5 py-2.5 text-xs font-medium text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-900 transition-colors disabled:opacity-50"
+                >
+                  <div>Șterge doar camionul („{deleteTarget.cells[0]}”)</div>
+                  <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                    Remorca și șoferul rămân păstrate.
+                  </div>
+                </button>
+              )}
+
+              {deleteHasTrailer && (deleteHasTruck || deleteHasDriver) && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => applyDeleteAction('trailer')}
+                  className="w-full text-left px-3.5 py-2.5 text-xs font-medium text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-900 transition-colors disabled:opacity-50"
+                >
+                  <div>Șterge doar remorca („{deleteTarget.cells[1]}”)</div>
+                  <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                    Camionul și șoferul rămân păstrate.
+                  </div>
+                </button>
+              )}
+
+              {deleteHasVehicle && deleteHasDriver && deleteHasTruck && deleteHasTrailer && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => applyDeleteAction('vehicle')}
+                  className="w-full text-left px-3.5 py-2.5 text-xs font-medium text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-900 transition-colors disabled:opacity-50"
+                >
+                  <div>Șterge camionul și remorca împreună</div>
+                  <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                    Șoferul („{deleteTarget.cells[2]}”) rămâne salvat pe acest rând.
+                  </div>
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => applyDeleteAction('row')}
+                className="w-full text-left px-3.5 py-2.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+              >
+                <div>Șterge tot rândul complet</div>
+                <div className="text-[11px] text-red-600 font-normal mt-0.5">
+                  Elimină întregul rând {deleteTarget.rowIdx} din foaia „flota”.
+                </div>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+              >
+                Anulează
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <FleetModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         row={editingRow}
+        initialAddMode={addMode}
+        flota={flota}
         flotaHeaders={headers}
         onSave={onSaveFleet}
       />

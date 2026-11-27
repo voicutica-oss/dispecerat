@@ -87,5 +87,9 @@ export interface GasMutatePayload {
   kind: 'curse' | 'vize' | 'concediu' | 'flota' | 'istoricRemorci';
   row?: number;
   values: string[];
+  batchValues?: string[][];
+  deleteRows?: number[];
+  deleteDriverVisas?: string;
   loc?: string;
+  deleteRow?: boolean;
 }

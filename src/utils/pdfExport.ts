@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { TripRecord, TripStatusType } from '../types/fleet';
+import type { FreeTrailer, TripRecord, TripStatusType } from '../types/fleet';
 import { saveBlobFile } from './fileDownload';
-import { fmtRoDateTime } from './roDates';
+import { fmtRoDateTime, isSheetCheckboxTrue } from './roDates';
 
 const STATUS_ASCII: Record<TripStatusType, string> = {
   active: 'Activa',
@@ -341,4 +341,177 @@ export function exportTrailerHistoryPdf(rows: string[][], filterSummary: string)
 
   addPageNumbers(doc);
   savePdfDoc(doc, `raport-istoric-remorci-${fileDateStamp()}.pdf`);
+}
+
+export function exportFleetPdf(
+  rows: { cells: string[]; status: string }[],
+  headers: string[],
+  filterSummary: string
+) {
+  const doc = new jsPDF({
+    orientation: 'landscape',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const generatedAt = fmtRoDateTime(new Date());
+  doc.setFontSize(14);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Raport Flota & Vehicule - Dispecerat Flota', 10, 13);
+
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    asciiRo(
+      `Generat la: ${generatedAt}  |  Randuri afisate: ${rows.length}${
+        filterSummary ? `  |  ${filterSummary}` : ''
+      }`
+    ),
+    10,
+    19
+  );
+
+  const head = [
+    [
+      '#',
+      asciiRo(headers[0] || 'Nr camion'),
+      asciiRo(headers[1] || 'Nr remorca'),
+      asciiRo(headers[2] || 'Nume sofer'),
+      asciiRo(headers[3] || 'Tip'),
+      asciiRo(headers[4] || 'Telefon'),
+      asciiRo(headers[5] || 'Tel. rezerva'),
+      asciiRo(headers[6] || 'An fab.'),
+      asciiRo(headers[7] || 'Tip auto'),
+      'ADR',
+      'Situatie cursa',
+    ],
+  ];
+
+  const body = rows.map((r, idx) => [
+    String(idx + 1),
+    asciiRo(r.cells[0] || '-'),
+    asciiRo(r.cells[1] || '-'),
+    asciiRo(r.cells[2] || '-'),
+    asciiRo(r.cells[3] || '-'),
+    asciiRo(r.cells[4] || '-'),
+    asciiRo(r.cells[5] || '-'),
+    asciiRo(r.cells[6] || '-'),
+    asciiRo(r.cells[7] || '-'),
+    isSheetCheckboxTrue(r.cells[11]) ? 'DA' : '-',
+    asciiRo(r.status || '-'),
+  ]);
+
+  autoTable(doc, {
+    startY: 23,
+    head,
+    body,
+    margin: { top: 14, right: 8, bottom: 12, left: 8 },
+    styles: {
+      fontSize: 7.5,
+      cellPadding: 1.7,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.15,
+      overflow: 'linebreak',
+    },
+    headStyles: {
+      fillColor: [29, 78, 216],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'right' },
+      1: { cellWidth: 23, fontStyle: 'bold' },
+      2: { cellWidth: 23 },
+      3: { cellWidth: 42 },
+      4: { cellWidth: 20 },
+      5: { cellWidth: 26 },
+      6: { cellWidth: 26 },
+      7: { cellWidth: 15, halign: 'center' },
+      8: { cellWidth: 30 },
+      9: { cellWidth: 11, halign: 'center' },
+      10: { cellWidth: 57 },
+    },
+  });
+
+  addPageNumbers(doc);
+  savePdfDoc(doc, `raport-flota-${fileDateStamp()}.pdf`);
+}
+
+export function exportFreeTrailersPdf(
+  items: FreeTrailer[],
+  filterSummary: string
+) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const generatedAt = fmtRoDateTime(new Date());
+  doc.setFontSize(14);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Raport Remorci Libere - Dispecerat Flota', 12, 13);
+
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    asciiRo(
+      `Generat la: ${generatedAt}  |  Remorci libere: ${items.length}${
+        filterSummary ? `  |  ${filterSummary}` : ''
+      }`
+    ),
+    12,
+    19
+  );
+
+  const head = [
+    ['Nr.', 'Remorca libera', 'Nefolosita din', 'Ultimul sofer', 'Situatie'],
+  ];
+
+  const body = items.map((f, idx) => [
+    String(idx + 1),
+    asciiRo(f.remorca || '-'),
+    asciiRo(f.nefolositaDin || '-'),
+    asciiRo(f.ultimulSofer || '-'),
+    asciiRo(f.motiv || 'Fara cursa activa'),
+  ]);
+
+  autoTable(doc, {
+    startY: 23,
+    head,
+    body,
+    margin: { top: 14, right: 12, bottom: 12, left: 12 },
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 2,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.15,
+      overflow: 'linebreak',
+    },
+    headStyles: {
+      fillColor: [29, 78, 216],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8.5,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'right' },
+      1: { cellWidth: 32, fontStyle: 'bold' },
+      2: { cellWidth: 32 },
+      3: { cellWidth: 55 },
+      4: { cellWidth: 55 },
+    },
+  });
+
+  addPageNumbers(doc);
+  savePdfDoc(doc, `raport-remorci-libere-${fileDateStamp()}.pdf`);
 }
