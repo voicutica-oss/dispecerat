@@ -1,4 +1,7 @@
-const PAROLA = 'TRANSPORT';
+function authorized_(key) {
+  const expected = PropertiesService.getScriptProperties().getProperty('DISPECERAT_SCRIPT_KEY');
+  return !!expected && (key || '') === expected;
+}
 const TAB_CURSE = 'sheet 1', TAB_VIZE = 'vize medicale', TAB_FLOTA = 'flota', TAB_ISTORIC = 'istoric', TAB_LIBERE = 'remorci libere', TAB_TOTAL = 'total concediu', TAB_IST_REM = 'istoric remorci';
 const AN_CONCEDIU = new Date().getFullYear();
 const LUNI = ['ian', 'feb', 'mar', 'apr', 'mai', 'iun', 'iul', 'aug', 'sep', 'oct', 'noi', 'dec'];
@@ -9,7 +12,10 @@ const _valsCache = {};
 let _flotaMapsCache = null;
 
 function ss_() {
-  if (!_ssCache) _ssCache = SpreadsheetApp.getActiveSpreadsheet();
+  if (!_ssCache) {
+    const id = PropertiesService.getScriptProperties().getProperty('DISPECERAT_SHEET_ID');
+    _ssCache = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  }
   return _ssCache;
 }
 function sheets_() {
@@ -814,15 +820,10 @@ function onEdit(e) {
     refreshZileCurseCamion_();
   }
 }
-function doGet(e) {
-  if (!e || (e.parameter.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
-  if (e.parameter.recalc === '1') {
-    syncSheet1AutoFill_();
-    refreshRemorciLibere_();
-    refreshZileCurseCamion_();
-  }
+function sheetPayload_() {
   return out_({
-    scriptVersion: '3.3',
+    scriptVersion: '3.4',
+    sheetId: ss_().getId(),
     curse: vals_(TAB_CURSE, 16),
     vize: vizeRows_(),
     flota: vals_(TAB_FLOTA, 12),
@@ -832,9 +833,22 @@ function doGet(e) {
     zileCurse: vals_('zile curse camion', 14)
   });
 }
+function doGet(e) {
+  if (!e || !authorized_(e.parameter.key)) return out_({ error: 'Acces refuzat' });
+  if (e.parameter.recalc === '1') {
+    syncSheet1AutoFill_();
+    refreshRemorciLibere_();
+    refreshZileCurseCamion_();
+  }
+  return sheetPayload_();
+}
 function doPost(e) {
   const b = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-  if ((b.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
+  if (!authorized_(b.key)) return out_({ error: 'Acces refuzat' });
+  const sheetId = ss_().getId();
+  if (b.sheetId && b.sheetId !== sheetId) return out_({ error: 'Foaie diferită' });
+  if (b.action === 'verifySheet') return out_({ ok: true, sheetId });
+  if (b.action === 'read') return sheetPayload_();
   if (b.action && b.action !== 'write') return out_({ error: 'Acțiune necunoscută' });
   const user = String(b.user || 'Dispecer').trim();
   const vals = Array.isArray(b.values) ? b.values : [];

@@ -18,7 +18,7 @@ import { VisasView } from './components/VisasView';
 import { ZileCurseView } from './components/ZileCurseView';
 import { createDemoData } from './data/demoData';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
-import { mutateGas, syncFromGas } from './services/gasClient';
+import { MANAGED_SHEET, mutateGas, syncFromGas } from './services/gasClient';
 import type {
   GasConfig,
   GasMutatePayload,
@@ -70,7 +70,7 @@ const REFRESH_SEC = 25;
 
 const DEFAULT_CONFIG: GasConfig = {
   scriptUrl: '',
-  key: 'TRANSPORT',
+  key: '',
   user: 'Dispecer',
   mode: 'demo',
 };
@@ -83,7 +83,7 @@ function loadSavedConfig(): GasConfig {
       if (urlGas.startsWith('https://script.google.com/')) {
         const nextCfg: GasConfig = {
           scriptUrl: urlGas,
-          key: (params.get('key') || 'TRANSPORT').trim() || 'TRANSPORT',
+          key: (params.get('key') || '').trim(),
           user: (params.get('user') || 'Dispecer').trim() || 'Dispecer',
           mode: 'live',
         };
@@ -97,7 +97,7 @@ function loadSavedConfig(): GasConfig {
     const parsed = JSON.parse(raw);
     return {
       scriptUrl: typeof parsed.scriptUrl === 'string' ? parsed.scriptUrl : '',
-      key: typeof parsed.key === 'string' ? parsed.key : 'TRANSPORT',
+      key: typeof parsed.key === 'string' ? parsed.key : '',
       user:
         typeof parsed.user === 'string' && parsed.user.trim()
           ? parsed.user
@@ -124,11 +124,23 @@ function loadInitialData(mode: 'demo' | 'live'): GasPayload {
   return createDemoData();
 }
 
-export default function App() {
+interface AppProps {
+  managedAccess?: { email: string; canEdit: boolean };
+  onSignOut?: () => void;
+}
+
+export default function App({ managedAccess, onSignOut }: AppProps) {
   const isOnline = useOnlineStatus();
-  const [config, setConfig] = useState<GasConfig>(() => loadSavedConfig());
+  const isManaged = Boolean(managedAccess);
+  const readOnly = managedAccess?.canEdit === false;
+  const editDenied = 'Acest cont poate doar vizualiza foaia Google.';
+  const [config, setConfig] = useState<GasConfig>(() => managedAccess
+    ? { scriptUrl: MANAGED_SHEET, key: '', user: managedAccess.email, mode: 'live' }
+    : loadSavedConfig());
   const [data, setData] = useState<GasPayload>(() =>
-    loadInitialData(loadSavedConfig().mode)
+    isManaged
+      ? { curse: [], vize: [], flota: [], concediu: [], istoric: [], istoricRemorci: [], zileCurse: [] }
+      : loadInitialData(config.mode)
   );
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -193,6 +205,7 @@ export default function App() {
   );
 
   const lastSigRef = useRef('');
+  const managedNotificationsRef = useRef<string[]>([]);
   const lastSyncAtMsRef = useRef(0);
   const pendingSavesRef = useRef(0);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -213,6 +226,7 @@ export default function App() {
   };
 
   const scheduleCachePersist = useCallback((snapshot: GasPayload) => {
+    if (isManaged) return;
     if (cacheTimerRef.current) {
       window.clearTimeout(cacheTimerRef.current);
     }
@@ -226,7 +240,7 @@ export default function App() {
         // ignore quota errors
       }
     }, 150);
-  }, []);
+  }, [isManaged]);
 
   const applyLocalData = useCallback(
     (updater: (prev: GasPayload) => GasPayload) => {
@@ -306,7 +320,7 @@ export default function App() {
           lastSigRef.current = sig;
           setData(merged);
           try {
-            localStorage.setItem(DATA_CACHE_KEY, sig);
+            if (!isManaged) localStorage.setItem(DATA_CACHE_KEY, sig);
           } catch {
             // ignore quota errors
           }
@@ -328,7 +342,7 @@ export default function App() {
         if (!silent) setSyncing(false);
       }
     },
-    []
+    [isManaged]
   );
 
   const enqueueLiveMutation = useCallback(
@@ -519,9 +533,9 @@ export default function App() {
     );
 
     const storageKey = 'nf-' + fmtRoDate(todayRo());
-    let sent: string[] = [];
+    let sent = isManaged ? managedNotificationsRef.current : [];
     try {
-      sent = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      if (!isManaged) sent = JSON.parse(localStorage.getItem(storageKey) || '[]');
     } catch {
       sent = [];
     }
@@ -578,11 +592,11 @@ export default function App() {
       }
     }
     try {
-      localStorage.setItem(storageKey, JSON.stringify(sent));
+      if (!isManaged) localStorage.setItem(storageKey, JSON.stringify(sent));
     } catch {
       // ignore
     }
-  }, [trips, visas, leaves]);
+  }, [trips, visas, leaves, isManaged]);
 
   useEffect(() => {
     if (notifPermission === 'granted') {
@@ -604,6 +618,7 @@ export default function App() {
     values: string[];
     loc?: string;
   }) => {
+    if (readOnly) return setTripError(editDenied);
     setTripError(null);
     setTripSaving(false);
 
@@ -789,6 +804,7 @@ export default function App() {
   };
 
   const handleSaveFleet = async (payload: { row?: number; values: string[] }) => {
+    if (readOnly) throw new Error(editDenied);
     const userName = config.user || 'Dispecer';
     const nowStr = fmtRoDateTime(new Date());
 
@@ -841,6 +857,7 @@ export default function App() {
   };
 
   const handleSaveVisa = async (payload: { row?: number; values: string[] }) => {
+    if (readOnly) return setVisaError(editDenied);
     setVisaError(null);
     setVisaSaving(false);
 
@@ -910,6 +927,7 @@ export default function App() {
     monthIdx: number;
     cellText: string;
   }) => {
+    if (readOnly) throw new Error(editDenied);
     const userName = config.user || 'Dispecer';
     const nowStr = fmtRoDateTime(new Date());
     const currentYear = todayRo().getFullYear();
@@ -1127,7 +1145,8 @@ export default function App() {
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
-        onOpenConnection={() => {
+        onSignOut={onSignOut}
+        onOpenConnection={isManaged ? undefined : () => {
           setConnectionError(null);
           setConnectionInitialTab('connect');
           setConnectionOpen(true);
@@ -1148,7 +1167,7 @@ export default function App() {
           syncing={syncing}
           pendingSaves={pendingSaves}
           onSync={() => performSync(config)}
-          onAddTrip={() => {
+          onAddTrip={readOnly ? undefined : () => {
             setEditingTrip(null);
             setTripError(null);
             setTripModalOpen(true);
@@ -1157,6 +1176,7 @@ export default function App() {
         />
 
         <main className="flex-1 p-4 sm:p-6 pb-24 lg:pb-6 max-w-[1440px] w-full mx-auto space-y-4">
+          {readOnly && <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950" role="status">{editDenied}</p>}
           {config.mode === 'demo' && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-950">
               <div>
@@ -1179,7 +1199,7 @@ export default function App() {
             </div>
           )}
 
-          {scriptOutdated && config.mode === 'live' && (
+          {!isManaged && scriptOutdated && config.mode === 'live' && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-950">
               <span>
                 <strong>Script Google Apps Script neactualizat la acest link.</strong>{' '}
@@ -1430,7 +1450,7 @@ export default function App() {
         onSave={handleSaveLeave}
       />
 
-      <ConnectionModal
+      {!isManaged && <ConnectionModal
         open={connectionOpen}
         config={config}
         initialTab={connectionInitialTab}
@@ -1440,7 +1460,7 @@ export default function App() {
         onClose={() => setConnectionOpen(false)}
         onSaveAndConnect={handleConnectLive}
         onSwitchToDemo={handleSwitchToDemo}
-      />
+      />}
     </div>
   );
 }

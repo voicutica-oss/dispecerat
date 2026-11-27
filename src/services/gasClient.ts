@@ -1,5 +1,17 @@
 import type { GasMutatePayload, GasPayload } from '../types/fleet';
 
+export const MANAGED_SHEET = 'managed-sheet';
+
+async function managedRequest(path: string, body: object): Promise<Record<string, unknown>> {
+  const response = await fetch(path, {
+    method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(data.error || 'Conexiunea cu foaia Google nu este disponibilă.'));
+  return data;
+}
+
 function isNativeShell(): boolean {
   if (typeof window === 'undefined') return false;
   if (window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
@@ -122,6 +134,7 @@ export async function syncFromGas(
   scriptUrl: string,
   key: string
 ): Promise<GasPayload> {
+  if (scriptUrl === MANAGED_SHEET) return normalizeGasPayload(await managedRequest('/api/gas/sync', {}));
   if (isNativeShell()) {
     const data = await directGasSync(scriptUrl, key);
     return normalizeGasPayload(data);
@@ -172,6 +185,11 @@ export async function mutateGas(
   scriptUrl: string,
   payload: GasMutatePayload
 ): Promise<{ ok: boolean }> {
+  if (scriptUrl === MANAGED_SHEET) {
+    const { kind, row, values, loc } = payload;
+    const data = await managedRequest('/api/gas/mutate', { payload: { kind, row, values, loc } });
+    return { ok: data.ok === true };
+  }
   if (isNativeShell()) {
     return directGasMutate(scriptUrl, payload);
   }

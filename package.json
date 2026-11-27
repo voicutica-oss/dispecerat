@@ -20,6 +20,8 @@
     "@capacitor/core": "^8.6.2",
     "@capacitor/ios": "^8.6.2",
     "@google/genai": "^3.6.1",
+    "@netlify/identity": "^2.0.1",
+    "@netlify/server": "^0.1.6",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react-is": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
