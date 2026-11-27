@@ -7,6 +7,7 @@ import {
   History,
   LayoutDashboard,
   Link2,
+  LogOut,
   Route,
   Truck,
   X,
@@ -17,7 +18,8 @@ import { PWAInstallButton } from './PWAInstallButton';
 interface SidebarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
-  onOpenConnection: () => void;
+  onOpenConnection?: () => void;
+  onSignOut?: () => void;
   mode: 'demo' | 'live';
   counts: {
     activeTrips: number;
@@ -56,6 +58,7 @@ export function Sidebar({
   activeTab,
   onSelectTab,
   onOpenConnection,
+  onSignOut,
   mode,
   counts,
   mobileOpen,
@@ -150,7 +153,7 @@ export function Sidebar({
 
       <div className="p-3 border-t border-slate-200 space-y-2">
         <PWAInstallButton />
-        <button
+        {onOpenConnection && <button
           type="button"
           onClick={() => {
             onOpenConnection();
@@ -169,7 +172,12 @@ export function Sidebar({
           >
             {mode === 'live' ? 'Live' : 'Demo'}
           </span>
-        </button>
+        </button>}
+        {onSignOut && (
+          <button type="button" onClick={onSignOut} className="flex w-full min-h-11 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+            <LogOut className="size-4" aria-hidden="true" /> Deconectează-te
+          </button>
+        )}
       </div>
     </div>
   );

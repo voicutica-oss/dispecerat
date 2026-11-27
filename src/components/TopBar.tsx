@@ -10,7 +10,7 @@ interface TopBarProps {
   syncing: boolean;
   pendingSaves?: number;
   onSync: () => void;
-  onAddTrip: () => void;
+  onAddTrip?: () => void;
   onOpenMobileMenu: () => void;
 }
 
@@ -103,7 +103,7 @@ export function TopBar({
             <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Sincronizează</span>
           </button>
-          <button
+          {onAddTrip && <button
             type="button"
             onClick={onAddTrip}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 min-h-[36px] text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0"
@@ -111,7 +111,7 @@ export function TopBar({
             <Plus className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Adaugă cursă</span>
             <span className="sm:hidden">Cursă</span>
-          </button>
+          </button>}
         </div>
       </div>
     </header>
