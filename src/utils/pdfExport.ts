@@ -284,9 +284,23 @@ export function exportTrailerHistoryPdf(rows: string[][], filterSummary: string)
 
   const body = rows.map((r, idx) => {
     const predLocData = [r[5], r[6]].filter(Boolean).join(' / ');
-    const descPred = [r[7], r[8], r[9]].filter(Boolean).join(' / ');
+    const descPred = [
+      r[7],
+      r[8],
+      r[17] ? `Inc: ${r[17]}` : '',
+      r[9] ? `Desc: ${r[9]}` : '',
+    ]
+      .filter(Boolean)
+      .join(' / ');
     const capSoferPreia = [r[11], r[12]].filter(Boolean).join('\n');
-    const destPreluata = [r[14], r[15], r[16]].filter(Boolean).join(' / ');
+    const destPreluata = [
+      r[14],
+      r[15],
+      r[18] ? `Inc: ${r[18]}` : '',
+      r[16] ? `Desc: ${r[16]}` : '',
+    ]
+      .filter(Boolean)
+      .join(' / ');
     return [
       asciiRo(r[0] || String(idx + 1)),
       asciiRo(r[1] || '-'),

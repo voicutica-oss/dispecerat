@@ -50,6 +50,8 @@ const DEFAULT_HEADERS = [
   'Țară (preluată)',
   'Localitate (preluată)',
   'Data desc. (preluată)',
+  'Data înc. (predată)',
+  'Data înc. (preluată)',
 ];
 
 const TRAILER_HISTORY_COLS: TableColSpec[] = [
@@ -70,13 +72,15 @@ const TRAILER_HISTORY_COLS: TableColSpec[] = [
   { id: 'tara_preluata', defaultWidth: 96, minWidth: 56, maxWidth: 160 },
   { id: 'loc_preluata', defaultWidth: 156, minWidth: 94, maxWidth: 300 },
   { id: 'data_desc_preluata', defaultWidth: 128, minWidth: 88, maxWidth: 220 },
+  { id: 'data_inc_predata', defaultWidth: 128, minWidth: 88, maxWidth: 220 },
+  { id: 'data_inc_preluata', defaultWidth: 128, minWidth: 88, maxWidth: 220 },
   { id: 'actiune', defaultWidth: 96, minWidth: 82, maxWidth: 140 },
 ];
 
 const FIELD_SECTIONS: { title: string; indices: number[] }[] = [
   { title: 'Identificare & Remorci', indices: [0, 1, 2, 3, 4] },
-  { title: 'Predare & Ultima descărcare', indices: [5, 6, 7, 8, 9, 10] },
-  { title: 'Preluare de alt camion', indices: [11, 12, 13, 14, 15, 16] },
+  { title: 'Predare & Ultima cursă (predată)', indices: [5, 6, 17, 7, 8, 9, 10] },
+  { title: 'Preluare de alt camion', indices: [11, 12, 13, 18, 14, 15, 16] },
 ];
 
 export function TrailerHistoryView({
@@ -93,7 +97,7 @@ export function TrailerHistoryView({
   const [confirmRow, setConfirmRow] = useState<TrailerHistoryRowItem | null>(null);
   const [editingRow, setEditingRow] = useState<TrailerHistoryRowItem | null>(null);
   const [formValues, setFormValues] = useState<string[]>(() =>
-    Array.from({ length: 17 }, () => '')
+    Array.from({ length: 19 }, () => '')
   );
   const [saving, setSaving] = useState(false);
 
@@ -130,7 +134,7 @@ export function TrailerHistoryView({
       ) {
         indexed.push({
           rowIndex: idx + 1,
-          cells: Array.from({ length: 17 }, (_, c) => String(r[c] ?? '')),
+          cells: Array.from({ length: 19 }, (_, c) => String(r[c] ?? '')),
         });
       }
     }
@@ -174,7 +178,7 @@ export function TrailerHistoryView({
 
   const handleConfirmEdit = () => {
     if (!confirmRow) return;
-    setFormValues(Array.from({ length: 17 }, (_, i) => String(confirmRow.cells[i] || '')));
+    setFormValues(Array.from({ length: 19 }, (_, i) => String(confirmRow.cells[i] || '')));
     setEditingRow(confirmRow);
     setConfirmRow(null);
   };
@@ -281,7 +285,7 @@ export function TrailerHistoryView({
                   onClick={onOpenConnection}
                   className="text-blue-700 underline font-medium"
                 >
-                  scriptul Code.gs la versiunea 3.4
+                  scriptul Code.gs la versiunea 3.7
                 </button>{' '}
                 și publică <strong>Versiune nouă</strong> în Apps Script.
               </p>
@@ -342,11 +346,20 @@ export function TrailerHistoryView({
                               Localitate predare: <strong className="text-slate-800">{r[5]}</strong>
                             </div>
                           )}
-                          {(r[7] || r[8] || r[9]) && (
+                          {(r[7] || r[8] || r[9] || r[17]) && (
                             <div className="flex flex-wrap items-center gap-1">
-                              <span>Desc. predată:</span>
+                              <span>Cursă predată:</span>
                               {r[7] && <CountryFlag code={r[7]} className="w-3.5 h-2.5" />}
-                              <span>{[r[7], r[8], r[9]].filter(Boolean).join(' · ')}</span>
+                              <span>
+                                {[
+                                  r[7],
+                                  r[8],
+                                  r[17] ? `Înc: ${r[17]}` : '',
+                                  r[9] ? `Desc: ${r[9]}` : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </span>
                             </div>
                           )}
                           {r[10] && <div>Șofer predă: {r[10]}</div>}
@@ -360,11 +373,20 @@ export function TrailerHistoryView({
                             {r[12] ? ` (${r[12]})` : ''}
                             {r[13] ? ` · ${r[13]}` : ''}
                           </span>
-                          {(r[14] || r[15] || r[16]) && (
+                          {(r[14] || r[15] || r[16] || r[18]) && (
                             <span className="inline-flex items-center gap-1">
                               <span>·</span>
                               {r[14] && <CountryFlag code={r[14]} className="w-3.5 h-2.5" />}
-                              <span>{[r[14], r[15], r[16]].filter(Boolean).join(' / ')}</span>
+                              <span>
+                                {[
+                                  r[14],
+                                  r[15],
+                                  r[18] ? `Înc: ${r[18]}` : '',
+                                  r[16] ? `Desc: ${r[16]}` : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' / ')}
+                              </span>
                             </span>
                           )}
                         </div>
@@ -457,7 +479,9 @@ export function TrailerHistoryView({
                             colIdx === 9 ||
                             colIdx === 11 ||
                             colIdx === 13 ||
-                            colIdx === 16;
+                            colIdx === 16 ||
+                            colIdx === 17 ||
+                            colIdx === 18;
                           return (
                             <td
                               key={col.id}

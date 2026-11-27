@@ -476,7 +476,8 @@ export function computeTripDays(
 export function computeTruckWorkedDays(
   trips: TripRecord[],
   flota: string[][],
-  year: number
+  year: number,
+  istoricRemorci: string[][] = []
 ): {
   rows: string[][];
   availableYears: number[];
@@ -485,12 +486,104 @@ export function computeTruckWorkedDays(
   const yearsSet = new Set<number>([todayRo().getFullYear()]);
   const truckDays = new Map<string, Set<string>>();
 
+  const addDayRange = (truckKey: string, startD: Date, endD: Date) => {
+    const span = daysBetweenInclusive(startD, endD);
+    if (span <= 0 || span > 180) return;
+    let daySet = truckDays.get(truckKey);
+    if (!daySet) {
+      daySet = new Set<string>();
+      truckDays.set(truckKey, daySet);
+    }
+    for (let d = new Date(startD.getTime()); d <= endD; d.setDate(d.getDate() + 1)) {
+      const y = d.getFullYear();
+      yearsSet.add(y);
+      daySet.add(`${y}-${d.getMonth()}-${d.getDate()}`);
+    }
+  };
+
   for (let i = 1; i < (flota?.length || 0); i++) {
     const cam = String(flota[i]?.[0] || '').trim();
     const k = normRemKey(cam);
     if (k && !truckNames.has(k)) {
       truckNames.set(k, cam);
     }
+  }
+
+  // Track trailer pickups per (truckKey|remKey) from istoric remorci so a truck
+  // that takes over a loaded trailer mid-trip only gets days from the swap moment onward.
+  const pickupsByTruckRem = new Map<string, Date[]>();
+  const istHasHeader =
+    istoricRemorci.length > 0 &&
+    (plainRo(istoricRemorci[0]?.[0]).includes('nr') ||
+      plainRo(istoricRemorci[0]?.[1]).includes('camion'));
+  const istStartIdx = istHasHeader ? 1 : 0;
+
+  for (let i = istStartIdx; i < istoricRemorci.length; i++) {
+    const r = istoricRemorci[i] || [];
+    const camHandover = String(r[1] || '').trim();
+    const camHandoverKey = normRemKey(camHandover);
+    const remPred = String(r[2] || '').trim();
+    const remPredKey = normRemKey(remPred);
+    const remPrel = String(r[3] || '').trim();
+    const remPrelKey = normRemKey(remPrel);
+
+    const recordPickup = (tCam: string, rKey: string, pDate: Date | null) => {
+      const tKey = normRemKey(tCam);
+      if (!tKey || !rKey || !pDate) return;
+      if (!truckNames.has(tKey)) truckNames.set(tKey, tCam);
+      const mapKey = `${tKey}|${rKey}`;
+      const list = pickupsByTruckRem.get(mapKey) || [];
+      list.push(pDate);
+      pickupsByTruckRem.set(mapKey, list);
+    };
+
+    if (r[11] && remPredKey) {
+      recordPickup(
+        String(r[11]).trim(),
+        remPredKey,
+        parseRoDate(r[13]) || parseRoDate(r[6])
+      );
+    }
+    if (camHandoverKey && remPrelKey && !/^schimb/i.test(remPrel)) {
+      recordPickup(
+        camHandover,
+        remPrelKey,
+        parseRoDate(r[6]) || parseRoDate(r[13])
+      );
+    }
+
+    // Credit handover truck's worked segment up to swap moment
+    if (!camHandoverKey || !remPredKey) continue;
+    if (!truckNames.has(camHandoverKey)) truckNames.set(camHandoverKey, camHandover);
+
+    const unloadRaw = String(r[9] || '').trim();
+    const unloadLow = plainRo(unloadRaw);
+    const unloadIsSpecial =
+      unloadLow === 'curte' || unloadLow === 'sofer' || unloadLow === 'fara sofer';
+    const unloadD = unloadIsSpecial ? null : parseRoDate(unloadRaw);
+    const loadD = parseLoadingDate(r[17], unloadD);
+    const prevPickD = parseRoDate(r[4]);
+    const handoverD = parseRoDate(r[6]);
+
+    if (!loadD && !unloadD) continue;
+
+    let segStart: Date | null = null;
+    if (loadD && prevPickD) {
+      segStart = prevPickD > loadD ? prevPickD : loadD;
+    } else {
+      segStart = loadD || prevPickD || unloadD;
+    }
+    if (!segStart) continue;
+
+    let segEnd: Date | null = null;
+    if (handoverD && unloadD && unloadD >= segStart) {
+      segEnd = unloadD < handoverD ? unloadD : handoverD;
+    } else {
+      segEnd = handoverD || unloadD || segStart;
+    }
+    if (!segEnd || segEnd < segStart) continue;
+
+    addDayRange(camHandoverKey, segStart, segEnd);
   }
 
   const azi = todayRo();
@@ -531,26 +624,25 @@ export function computeTruckWorkedDays(
 
     if (!startDate || !endDate) continue;
 
-    const spanDays = daysBetweenInclusive(startDate, endDate);
-    if (spanDays <= 0 || spanDays > 180) continue;
-
-    let daySet = truckDays.get(k);
-    if (!daySet) {
-      daySet = new Set<string>();
-      truckDays.set(k, daySet);
+    const remKey = normRemKey(t.remorca);
+    if (remKey && !/^schimb/i.test(t.remorca)) {
+      const pickups = pickupsByTruckRem.get(`${k}|${remKey}`);
+      if (pickups && pickups.length > 0) {
+        let latestPickupInTrip: Date | null = null;
+        for (const pDate of pickups) {
+          if (pDate >= startDate && pDate <= endDate) {
+            if (!latestPickupInTrip || pDate > latestPickupInTrip) {
+              latestPickupInTrip = pDate;
+            }
+          }
+        }
+        if (latestPickupInTrip && latestPickupInTrip > startDate) {
+          startDate = latestPickupInTrip;
+        }
+      }
     }
 
-    for (
-      let d = new Date(startDate.getTime());
-      d <= endDate;
-      d.setDate(d.getDate() + 1)
-    ) {
-      const y = d.getFullYear();
-      yearsSet.add(y);
-      const m = d.getMonth();
-      const day = d.getDate();
-      daySet.add(`${y}-${m}-${day}`);
-    }
+    addDayRange(k, startDate, endDate);
   }
 
   const keys = Array.from(truckNames.keys()).sort((a, b) =>
@@ -1471,3 +1563,175 @@ export function parseLeaves(concediu: string[][]): LeaveRecord[] {
   }
   return records;
 }
+
+export function reconcileTrailerHistoryRows(
+  rawIstoric: string[][],
+  rawCurse: string[][],
+  todayStr: string = fmtRoDate(todayRo())
+): string[][] {
+  if (!Array.isArray(rawIstoric) || rawIstoric.length === 0) return rawIstoric;
+  const rows = rawIstoric.map((r) =>
+    Array.from({ length: Math.max(19, r?.length || 0) }, (_, idx) =>
+      String(r?.[idx] ?? '')
+    )
+  );
+
+  const hasHeader =
+    plainRo(rows[0]?.[0]).includes('nr') ||
+    plainRo(rows[0]?.[1]).includes('camion');
+  const startIdx = hasHeader ? 1 : 0;
+
+  interface LiveTripInfo {
+    cam: string;
+    camKey: string;
+    sofer: string;
+    tara: string;
+    loc: string;
+    dataDesc: string;
+    dataInc: string;
+  }
+
+  const liveByTruckRem = new Map<string, LiveTripInfo>();
+  const liveByRem = new Map<string, LiveTripInfo[]>();
+
+  for (let i = 1; i < (rawCurse || []).length; i++) {
+    const r = rawCurse[i] || [];
+    const { camion, remorca } = parteNr(r[1]);
+    if (!remorca || /^schimb/i.test(remorca)) continue;
+    const camKey = normRemKey(camion);
+    const remKey = normRemKey(remorca);
+    if (!remKey) continue;
+    const info: LiveTripInfo = {
+      cam: camion,
+      camKey,
+      sofer: String(r[7] || '').trim(),
+      tara: String(r[3] || '').trim(),
+      loc: String(r[4] || '').trim(),
+      dataDesc: String(r[2] || '').trim(),
+      dataInc: String(r[15] || '').trim(),
+    };
+    if (camKey) liveByTruckRem.set(`${camKey}|${remKey}`, info);
+    const arr = liveByRem.get(remKey) || [];
+    arr.push(info);
+    liveByRem.set(remKey, arr);
+  }
+
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    const remKey = normRemKey(row[2]);
+    const camKey = normRemKey(row[1]);
+    if (!remKey) continue;
+
+    if (!row[4].trim() && camKey) {
+      for (let j = i - 1; j >= Math.max(startIdx, i - 40); j--) {
+        const pCam = normRemKey(rows[j][1]);
+        const pPrel = normRemKey(rows[j][3]);
+        const pPred = normRemKey(rows[j][2]);
+        const pCapPreia = normRemKey(rows[j][11]);
+        if (pCam === camKey && pPrel === remKey) {
+          row[4] = String(rows[j][13] || rows[j][6] || '').trim();
+          break;
+        }
+        if (pPred === remKey && pCapPreia === camKey) {
+          row[4] = String(rows[j][13] || '').trim();
+          break;
+        }
+      }
+    }
+
+    if (row[11].trim()) {
+      if (!row[18].trim()) {
+        const pickupKey = normRemKey(row[11]);
+        const live = liveByTruckRem.get(`${pickupKey}|${remKey}`);
+        if (live?.dataInc) {
+          row[18] = live.dataInc;
+        }
+      }
+      continue;
+    }
+
+    let matchedIdx = -1;
+
+    for (let j = i + 1; j < rows.length; j++) {
+      if (normRemKey(rows[j][2]) === remKey) break;
+      if (
+        normRemKey(rows[j][3]) === remKey &&
+        normRemKey(rows[j][1]) !== camKey
+      ) {
+        matchedIdx = j;
+        break;
+      }
+    }
+
+    if (matchedIdx < 0) {
+      const handoverDate = parseRoDate(row[6]);
+      for (let j = i - 1; j >= Math.max(startIdx, i - 30); j--) {
+        if (normRemKey(rows[j][2]) === remKey) break;
+        const jCamKey = normRemKey(rows[j][1]);
+        if (normRemKey(rows[j][3]) === remKey && jCamKey !== camKey) {
+          const jDate = parseRoDate(rows[j][6]);
+          const closeDates =
+            String(rows[j][6] || '').trim() === String(row[6] || '').trim() ||
+            Boolean(
+              handoverDate &&
+                jDate &&
+                Math.abs(handoverDate.getTime() - jDate.getTime()) <=
+                  3 * 86400000
+            );
+          const activeInSheet1 = liveByTruckRem.has(`${jCamKey}|${remKey}`);
+          if (closeDates || activeInSheet1) {
+            matchedIdx = j;
+            break;
+          }
+        }
+      }
+    }
+
+    if (matchedIdx >= 0) {
+      const jRow = rows[matchedIdx];
+      const pickupCam = String(jRow[1] || '').trim();
+      const pickupKey = normRemKey(pickupCam);
+      const live = liveByTruckRem.get(`${pickupKey}|${remKey}`);
+      const pickupDate =
+        String(jRow[6] || '').trim() ||
+        String(jRow[13] || '').trim() ||
+        String(row[6] || '').trim() ||
+        todayStr;
+      row[11] = pickupCam;
+      row[12] = live?.sofer || String(jRow[12] || '').trim();
+      row[13] = pickupDate;
+      row[14] = live?.tara || String(jRow[14] || '').trim();
+      row[15] = live?.loc || String(jRow[15] || '').trim();
+      row[16] = live?.dataDesc || String(jRow[16] || '').trim();
+      row[18] =
+        live?.dataInc ||
+        String(jRow[18] || '').trim() ||
+        String(row[17] || '').trim();
+      continue;
+    }
+
+    let hasLaterHandover = false;
+    for (let k = i + 1; k < rows.length; k++) {
+      if (normRemKey(rows[k][2]) === remKey) {
+        hasLaterHandover = true;
+        break;
+      }
+    }
+    if (!hasLaterHandover) {
+      const candidates = liveByRem.get(remKey) || [];
+      const cand = candidates.find((c) => c.camKey && c.camKey !== camKey);
+      if (cand) {
+        row[11] = cand.cam;
+        row[12] = cand.sofer;
+        row[13] = String(row[6] || '').trim() || todayStr;
+        row[14] = cand.tara;
+        row[15] = cand.loc;
+        row[16] = cand.dataDesc;
+        row[18] = cand.dataInc || String(row[17] || '').trim();
+      }
+    }
+  }
+
+  return rows;
+}
+

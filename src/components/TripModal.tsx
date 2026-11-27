@@ -1,5 +1,5 @@
 import { AlertCircle, Flame, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LeaveRecord, TripRecord } from '../types/fleet';
 import {
   buildAdrDriversSet,
@@ -76,6 +76,8 @@ export function TripModal({
     null
   );
   const [localError, setLocalError] = useState<string | null>(null);
+  const [confirmMissingLoadDate, setConfirmMissingLoadDate] = useState(false);
+  const loadDateInputRef = useRef<HTMLInputElement>(null);
 
   const adrDrivers = useMemo(() => buildAdrDriversSet(flota), [flota]);
   const fleetAutoIndex = useMemo(() => buildFleetAutoFillIndex(flota), [flota]);
@@ -124,7 +126,7 @@ export function TripModal({
   const trailerLatestData = useMemo(() => {
     const map: Record<
       string,
-      { dataDesc: string; tara: string; localitate: string }
+      { dataInc: string; dataDesc: string; tara: string; localitate: string }
     > = {};
 
     // 1. From istoric remorci (oldest -> newest so latest wins)
@@ -132,25 +134,41 @@ export function TripModal({
       const rPred = String(row[2] || '').trim();
       const kPred = normRemKey(rPred);
       if (kPred && !/^schimb/i.test(rPred)) {
+        const incP = String(row[17] || '').trim();
         const taraP = String(row[7] || '').trim();
         const locP = String(row[8] || '').trim();
         const dataP = String(row[9] || '').trim();
-        if (dataP || taraP || locP) {
+        if (incP || dataP || taraP || locP) {
           map[kPred] = {
+            dataInc: incP,
             dataDesc: dataP,
             tara: taraP,
             localitate: locP,
+          };
+        }
+        const incN = String(row[18] || '').trim();
+        const taraN = String(row[14] || '').trim();
+        const locN = String(row[15] || '').trim();
+        const dataN = String(row[16] || '').trim();
+        if (incN || dataN || taraN || locN) {
+          map[kPred] = {
+            dataInc: incN || map[kPred]?.dataInc || '',
+            dataDesc: dataN || map[kPred]?.dataDesc || '',
+            tara: taraN || map[kPred]?.tara || '',
+            localitate: locN || map[kPred]?.localitate || '',
           };
         }
       }
       const rPrel = String(row[3] || '').trim();
       const kPrel = normRemKey(rPrel);
       if (kPrel && !/^schimb/i.test(rPrel)) {
+        const incN = String(row[18] || '').trim();
         const taraN = String(row[14] || '').trim();
         const locN = String(row[15] || '').trim();
         const dataN = String(row[16] || '').trim();
-        if (dataN || taraN || locN) {
+        if (incN || dataN || taraN || locN) {
           map[kPrel] = {
+            dataInc: incN,
             dataDesc: dataN,
             tara: taraN,
             localitate: locN,
@@ -165,11 +183,13 @@ export function TripModal({
       const rem = (t.remorca || '').trim();
       const kRem = normRemKey(rem);
       if (!kRem || /^schimb/i.test(rem)) return;
+      const dataIncD = String(t.cells[15] || '').trim();
       const dataD = String(t.cells[2] || '').trim();
       const taraD = String(t.cells[3] || '').trim();
       const locD = String(t.cells[4] || '').trim();
-      if (dataD || taraD || locD) {
+      if (dataIncD || dataD || taraD || locD) {
         map[kRem] = {
+          dataInc: dataIncD,
           dataDesc: dataD,
           tara: taraD,
           localitate: locD,
@@ -183,6 +203,7 @@ export function TripModal({
   useEffect(() => {
     if (!open) return;
     setLocalError(null);
+    setConfirmMissingLoadDate(false);
     setAutoFilledTrailer(null);
     setLocSwap('');
     if (trip) {
@@ -247,11 +268,11 @@ export function TripModal({
   const trailerChanged =
     !isOldSwap &&
     !isNewSwap &&
-    remorca.trim().toUpperCase() !== oldTrailer.trim().toUpperCase() &&
+    normRemKey(remorca) !== normRemKey(oldTrailer) &&
     Boolean(remorca.trim() || oldTrailer.trim());
   const existingSwapped =
     Boolean(trip && oldTrailer && remorca.trim() && !isOldSwap && !isNewSwap) &&
-    remorca.trim().toUpperCase() !== oldTrailer.trim().toUpperCase();
+    normRemKey(remorca) !== normRemKey(oldTrailer);
 
   const handleCamionChange = (nextCamion: string) => {
     setCamion(nextCamion);
@@ -275,6 +296,7 @@ export function TripModal({
     const trimmed = nextRem.trim();
     const key = normRemKey(trimmed);
     const isSameAsOld = Boolean(trip) && key === normRemKey(oldTrailer);
+    const hadRealOldTrailer = Boolean(trip && oldTrailer && !isOldSwap);
 
     const auto = computeFleetAutoFill(
       { camion, remorca: nextRem, soferi: `${sofer1}, ${sofer2}` },
@@ -288,27 +310,43 @@ export function TripModal({
       setTipAuto('');
     }
 
-    if (!trimmed || /^schimb/i.test(trimmed) || isSameAsOld) {
-      if (autoFilledTrailer && trip) {
-        setDataText(trip.cells[2] || '');
-        setTara(trip.cells[3] || '');
-        setLocalitate(trip.cells[4] || '');
+    if (!trimmed || /^schimb/i.test(trimmed)) {
+      if (hadRealOldTrailer || autoFilledTrailer) {
+        setDataIncarcarii('');
+        setDataText('');
+        setTara('');
+        setLocalitate('');
+        setConfirmMissingLoadDate(false);
       }
       setAutoFilledTrailer(null);
       return;
     }
 
+    if (isSameAsOld && trip) {
+      setDataIncarcarii(trip.cells[15] || '');
+      setDataText(trip.cells[2] || '');
+      setTara(trip.cells[3] || '');
+      setLocalitate(trip.cells[4] || '');
+      setAutoFilledTrailer(null);
+      setConfirmMissingLoadDate(false);
+      return;
+    }
+
     const found = key ? trailerLatestData[key] : undefined;
     if (found) {
-      if (found.dataDesc) setDataText(found.dataDesc);
-      if (found.tara) setTara(found.tara);
-      if (found.localitate) setLocalitate(found.localitate);
+      setDataIncarcarii(found.dataInc || '');
+      setDataText(found.dataDesc || '');
+      setTara(found.tara || '');
+      setLocalitate(found.localitate || '');
+      setConfirmMissingLoadDate(false);
       setAutoFilledTrailer(trimmed);
-    } else if (autoFilledTrailer) {
-      if (trip) {
-        setDataText(trip.cells[2] || '');
-        setTara(trip.cells[3] || '');
-        setLocalitate(trip.cells[4] || '');
+    } else {
+      if (hadRealOldTrailer || autoFilledTrailer) {
+        setDataIncarcarii('');
+        setDataText('');
+        setTara('');
+        setLocalitate('');
+        setConfirmMissingLoadDate(false);
       }
       setAutoFilledTrailer(null);
     }
@@ -382,44 +420,7 @@ export function TripModal({
       : '');
   const remNoteIsSwap = isFlotaSwapTag(remNote);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLocalError(null);
-
-    if (!camion.trim() && !remorca.trim()) {
-      setLocalError('Introdu cel puțin numărul camionului sau al remorcii.');
-      return;
-    }
-
-    const statusLower = plainRo(dataText);
-    const isSpecialStatus =
-      statusLower === 'curte' || statusLower === 'sofer' || isNewSwap;
-
-    if (!isSpecialStatus && !dataIncarcarii.trim()) {
-      setLocalError(
-        'Data încărcării (coloana P) este obligatorie înainte de salvare.'
-      );
-      return;
-    }
-
-    if (trailerChanged && !locSwap.trim()) {
-      setLocalError(
-        'Localitatea predării/preluării remorcii este obligatorie (coloana F din istoric remorci).'
-      );
-      return;
-    }
-
-    if (
-      existingSwapped &&
-      !isSpecialStatus &&
-      (!tara.trim() || !localitate.trim())
-    ) {
-      setLocalError(
-        'Remorcă schimbată: completează data, țara și localitatea noii curse.'
-      );
-      return;
-    }
-
+  const performSave = async () => {
     const nr = remorca.trim()
       ? `${camion.trim()}/${remorca.trim()}`
       : hasSlash
@@ -454,11 +455,55 @@ export function TripModal({
       dataIncarcarii.trim(),
     ];
 
+    setConfirmMissingLoadDate(false);
     await onSave({
       row: trip ? trip.rowIndex : undefined,
       values,
       loc: locSwap.trim() || undefined,
     });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+
+    if (!camion.trim() && !remorca.trim()) {
+      setLocalError('Introdu cel puțin numărul camionului sau al remorcii.');
+      return;
+    }
+
+    const statusLower = plainRo(dataText);
+    const isSpecialStatus =
+      statusLower === 'curte' || statusLower === 'sofer' || isNewSwap;
+
+    if (trailerChanged && !locSwap.trim()) {
+      setLocalError(
+        'Localitatea predării/preluării remorcii este obligatorie (coloana F din istoric remorci).'
+      );
+      return;
+    }
+
+    if (
+      existingSwapped &&
+      !isSpecialStatus &&
+      (!tara.trim() || !localitate.trim())
+    ) {
+      setLocalError(
+        'Remorcă schimbată: completează data, țara și localitatea noii curse.'
+      );
+      return;
+    }
+
+    if (
+      !isSpecialStatus &&
+      !dataIncarcarii.trim() &&
+      (Boolean(remorca.trim()) || Boolean(dataText.trim()))
+    ) {
+      setConfirmMissingLoadDate(true);
+      return;
+    }
+
+    await performSave();
   };
 
   const labelFor = (idx: number, fallback?: string) =>
@@ -606,14 +651,13 @@ export function TripModal({
                 Schimbare remorcă detectată ({oldTrailer} → {remorca})
               </div>
               <div>
-                Remorca predată <strong>{oldTrailer}</strong> a descărcat:{' '}
-                {trip?.cells[2] || '—'} · {trip?.cells[3] || '—'} ·{' '}
-                {trip?.cells[4] || '—'}. Aceste date merg în istoric; mai jos
+                Remorca predată <strong>{oldTrailer}</strong> a avut cursa:{' '}
+                {[trip?.cells[15] ? `Înc: ${trip.cells[15]}` : '', trip?.cells[2] || '—', trip?.cells[3] || '—', trip?.cells[4] || '—'].filter(Boolean).join(' · ')}. Aceste date merg în istoric; mai jos
                 poți verifica sau edita datele pentru noua remorcă.
               </div>
               {autoFilledTrailer && (
                 <div className="pt-1 font-medium text-blue-800">
-                  Datele (data descărcării, țara, localitatea) au fost completate automat pentru remorca {autoFilledTrailer} și pot fi editate liber mai jos.
+                  Datele (data încărcării, data descărcării, țara, localitatea) au fost completate automat pentru remorca {autoFilledTrailer} și pot fi editate liber mai jos.
                 </div>
               )}
             </div>
@@ -621,7 +665,7 @@ export function TripModal({
 
           {!existingSwapped && autoFilledTrailer && (
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900">
-              Datele (data descărcării, țara, localitatea) au fost preluate automat pentru remorca <strong>{autoFilledTrailer}</strong> și le poți edita mai jos.
+              Datele (data încărcării, data descărcării, țara, localitatea) au fost preluate automat pentru remorca <strong>{autoFilledTrailer}</strong> și le poți edita mai jos.
             </div>
           )}
 
@@ -756,17 +800,16 @@ export function TripModal({
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-medium text-slate-800">
                   P · {labelFor(15, 'data incarcarii')}{' '}
-                  {loadingRequired ? (
-                    <span className="text-red-600 font-bold">*</span>
-                  ) : (
-                    <span className="text-[11px] font-normal text-slate-500">
-                      (opțional)
-                    </span>
-                  )}
+                  <span className="text-[11px] font-normal text-slate-500">
+                    {loadingRequired ? '(recomandat)' : '(opțional)'}
+                  </span>
                 </label>
                 <button
                   type="button"
-                  onClick={() => setDataIncarcarii(fmtRoDate(todayRo()))}
+                  onClick={() => {
+                    setDataIncarcarii(fmtRoDate(todayRo()));
+                    setConfirmMissingLoadDate(false);
+                  }}
                   className="text-[11px] text-blue-700 hover:underline font-medium"
                 >
                   Azi
@@ -774,18 +817,24 @@ export function TripModal({
               </div>
               <div className="flex gap-2">
                 <input
+                  ref={loadDateInputRef}
                   type="text"
-                  required={loadingRequired}
                   value={dataIncarcarii}
-                  onChange={(e) => setDataIncarcarii(e.target.value)}
-                  placeholder="zz.ll.aaaa (obligatoriu)"
+                  onChange={(e) => {
+                    setDataIncarcarii(e.target.value);
+                    if (e.target.value.trim()) setConfirmMissingLoadDate(false);
+                  }}
+                  placeholder="zz.ll.aaaa (opțional)"
                   className="flex-1 min-w-0 px-3 py-2.5 bg-white font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
                 />
                 <input
                   type="date"
                   value={isoLoadingPickerValue}
                   onChange={(e) => {
-                    if (e.target.value) setDataIncarcarii(isoToRoDate(e.target.value));
+                    if (e.target.value) {
+                      setDataIncarcarii(isoToRoDate(e.target.value));
+                      setConfirmMissingLoadDate(false);
+                    }
                   }}
                   aria-label="Alege data încărcării din calendar"
                   className="w-[44px] px-2 py-2 border border-slate-200 rounded-lg bg-white text-xs focus:outline-none focus:border-blue-600"
@@ -1024,6 +1073,46 @@ export function TripModal({
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2.5 text-xs text-red-700">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{displayError}</span>
+            </div>
+          )}
+
+          {confirmMissingLoadDate && (
+            <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-3 text-xs text-amber-950">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-700" />
+                <div>
+                  <div className="font-semibold text-amber-950">
+                    Nu ai salvat data încărcării!
+                  </div>
+                  <div className="text-amber-800 mt-0.5">
+                    Câmpul <strong>Data încărcării (coloana P)</strong> este gol. Poți completa data acum sau poți salva cursa și fără ea.
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmMissingLoadDate(false);
+                    loadDateInputRef.current?.focus();
+                    loadDateInputRef.current?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'center',
+                    });
+                  }}
+                  className="px-3.5 py-2 text-xs font-medium text-amber-900 bg-white border border-amber-300 rounded-lg hover:bg-amber-100"
+                >
+                  Completează data
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={performSave}
+                  className="px-3.5 py-2 text-xs font-semibold text-white bg-amber-700 rounded-lg hover:bg-amber-800 disabled:opacity-50"
+                >
+                  {saving ? 'Se salvează...' : 'Salvează fără data încărcării'}
+                </button>
+              </div>
             </div>
           )}
 

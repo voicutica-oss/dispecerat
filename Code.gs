@@ -31,14 +31,28 @@ function out_(o) {
 }
 function sheet_(n) {
   const k = n.toLowerCase();
-  return sheets_().find(s => s.getName().trim().toLowerCase() === k);
+  const list = sheets_();
+  let found = list.find(s => s.getName().trim().toLowerCase() === k);
+  if (!found && k === 'sheet 1') {
+    found = list.find(s => s.getName().trim().toLowerCase() === 'sheet1');
+  }
+  return found;
 }
 function vals_(n, cols) {
   const cacheKey = n.toLowerCase() + ':' + cols;
   if (_valsCache[cacheKey]) return _valsCache[cacheKey];
   const sh = sheet_(n);
   if (!sh) return [];
-  const data = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), Math.max(sh.getLastColumn(), cols)).getDisplayValues();
+  const maxCols = Math.max(sh.getMaxColumns(), 1);
+  const reqCols = Math.min(Math.max(sh.getLastColumn(), cols), maxCols);
+  const raw = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), reqCols).getDisplayValues();
+  const data = reqCols < cols
+    ? raw.map(function(r) {
+        const copy = r.slice();
+        while (copy.length < cols) copy.push('');
+        return copy;
+      })
+    : raw;
   _valsCache[cacheKey] = data;
   return data;
 }
@@ -210,7 +224,7 @@ function refreshRemorciLibere_() {
     libSh.setFrozenRows(1);
     libSh.setFrozenColumns(1);
   }
-  const fl = vals_(TAB_FLOTA, 12), cu = vals_(TAB_CURSE, 16), ir = vals_(TAB_IST_REM, 17);
+  const fl = vals_(TAB_FLOTA, 12), cu = vals_(TAB_CURSE, 16), ir = vals_(TAB_IST_REM, 19);
   const azi = azi_(), names = {}, ultima = {}, activa = {}, sofer = {};
   const normK = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const reg = (raw, prefer) => {
@@ -318,21 +332,93 @@ function refreshZileCurseCamion_() {
   }
   const fl = vals_(TAB_FLOTA, 12);
   const cu = vals_(TAB_CURSE, 16);
+  const ir = vals_(TAB_IST_REM, 19);
   const azi = azi_();
   const trucksSet = {};
   for (let i = 1; i < fl.length; i++) {
     const cam = String(fl[i][0] || '').trim();
-    if (cam && !trucksSet[cam.toUpperCase()]) trucksSet[cam.toUpperCase()] = cam;
+    const k = normKey_(cam);
+    if (k && !trucksSet[k]) trucksSet[k] = cam;
   }
   for (let i = 1; i < cu.length; i++) {
     const nrCam = String(cu[i][1] || '').split('/')[0].trim();
-    if (nrCam && !trucksSet[nrCam.toUpperCase()]) trucksSet[nrCam.toUpperCase()] = nrCam;
+    const k = normKey_(nrCam);
+    if (k && !trucksSet[k]) trucksSet[k] = nrCam;
   }
-  const truckKeys = Object.keys(trucksSet).sort(function(a, b) {
-    return trucksSet[a].localeCompare(trucksSet[b]);
-  });
+
   const daySets = {};
-  truckKeys.forEach(function(k) { daySets[k] = {}; });
+  function addRange(tKey, sD, eD) {
+    if (!tKey || !sD || !eD) return;
+    const span = Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1;
+    if (span <= 0 || span > 180) return;
+    if (!daySets[tKey]) daySets[tKey] = {};
+    for (let d = new Date(sD.getTime()); d <= eD; d.setDate(d.getDate() + 1)) {
+      if (d.getFullYear() === AN_CONCEDIU) {
+        const dk = d.getMonth() + '-' + d.getDate();
+        daySets[tKey][dk] = true;
+      }
+    }
+  }
+
+  const pickupsByTruckRem = {};
+  function recordPickup(tCam, rKey, pDate) {
+    const tKey = normKey_(tCam);
+    if (!tKey || !rKey || !pDate) return;
+    if (!trucksSet[tKey]) trucksSet[tKey] = tCam;
+    const mapKey = tKey + '|' + rKey;
+    if (!pickupsByTruckRem[mapKey]) pickupsByTruckRem[mapKey] = [];
+    pickupsByTruckRem[mapKey].push(pDate);
+  }
+
+  const istHasHeader = ir.length > 0 && (plain_(ir[0] && ir[0][0]).indexOf('nr') >= 0 || plain_(ir[0] && ir[0][1]).indexOf('camion') >= 0);
+  const istStartIdx = istHasHeader ? 1 : 0;
+
+  for (let i = istStartIdx; i < ir.length; i++) {
+    const r = ir[i] || [];
+    const camHandover = String(r[1] || '').trim();
+    const camHandoverKey = normKey_(camHandover);
+    const remPred = normRem_(r[2] || '');
+    const remPredKey = normKey_(remPred);
+    const remPrel = normRem_(r[3] || '');
+    const remPrelKey = normKey_(remPrel);
+
+    if (r[11] && remPredKey) {
+      recordPickup(String(r[11]).trim(), remPredKey, parseRo_(r[13]) || parseRo_(r[6]));
+    }
+    if (camHandoverKey && remPrelKey) {
+      recordPickup(camHandover, remPrelKey, parseRo_(r[6]) || parseRo_(r[13]));
+    }
+
+    if (!camHandoverKey || !remPredKey) continue;
+    if (!trucksSet[camHandoverKey]) trucksSet[camHandoverKey] = camHandover;
+
+    const unloadRaw = String(r[9] || '').trim();
+    const unloadLow = plain_(unloadRaw);
+    const unloadIsSpecial = unloadLow === 'curte' || unloadLow === 'sofer' || unloadLow === 'fara sofer';
+    const unloadD = unloadIsSpecial ? null : parseRo_(unloadRaw);
+    const loadD = parseLoadingDate_(r[17], unloadD);
+    const prevPickD = parseRo_(r[4]);
+    const handoverD = parseRo_(r[6]);
+    if (!loadD && !unloadD) continue;
+
+    let segStart = null;
+    if (loadD && prevPickD) {
+      segStart = prevPickD > loadD ? prevPickD : loadD;
+    } else {
+      segStart = loadD || prevPickD || unloadD;
+    }
+    if (!segStart) continue;
+
+    let segEnd = null;
+    if (handoverD && unloadD && unloadD >= segStart) {
+      segEnd = unloadD < handoverD ? unloadD : handoverD;
+    } else {
+      segEnd = handoverD || unloadD || segStart;
+    }
+    if (!segEnd || segEnd < segStart) continue;
+
+    addRange(camHandoverKey, segStart, segEnd);
+  }
 
   for (let i = 1; i < cu.length; i++) {
     const nr = String(cu[i][1] || '');
@@ -344,8 +430,9 @@ function refreshZileCurseCamion_() {
     const dataLow = plain_(dataDescRaw);
     if (dataLow === 'curte' || dataLow === 'sofer' || dataLow === 'fara sofer') continue;
 
-    const key = cam.toUpperCase();
-    if (!daySets[key]) daySets[key] = {};
+    const key = normKey_(cam);
+    if (!key) continue;
+    if (!trucksSet[key]) trucksSet[key] = cam;
 
     const unloadDate = parseRo_(dataDescRaw);
     const loadDate = parseLoadingDate_(cu[i][15], unloadDate);
@@ -362,16 +449,32 @@ function refreshZileCurseCamion_() {
       endD = unloadDate;
     }
     if (!startD || !endD) continue;
-    const span = Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1;
-    if (span <= 0 || span > 180) continue;
 
-    for (let d = new Date(startD.getTime()); d <= endD; d.setDate(d.getDate() + 1)) {
-      if (d.getFullYear() === AN_CONCEDIU) {
-        const dk = d.getMonth() + '-' + d.getDate();
-        daySets[key][dk] = true;
+    const remKey = normKey_(normRem_(rem));
+    if (remKey) {
+      const pickups = pickupsByTruckRem[key + '|' + remKey];
+      if (pickups && pickups.length > 0) {
+        let latestPickupInTrip = null;
+        for (let p = 0; p < pickups.length; p++) {
+          const pDate = pickups[p];
+          if (pDate >= startD && pDate <= endD) {
+            if (!latestPickupInTrip || pDate > latestPickupInTrip) {
+              latestPickupInTrip = pDate;
+            }
+          }
+        }
+        if (latestPickupInTrip && latestPickupInTrip > startD) {
+          startD = latestPickupInTrip;
+        }
       }
     }
+
+    addRange(key, startD, endD);
   }
+
+  const truckKeys = Object.keys(trucksSet).sort(function(a, b) {
+    return trucksSet[a].localeCompare(trucksSet[b]);
+  });
 
   const header = ['Nr camion', 'Ian', 'Feb', 'Mar', 'Apr', 'Mai', 'Iun', 'Iul', 'Aug', 'Sep', 'Oct', 'Noi', 'Dec', 'TOTAL AN'];
   const rows = truckKeys.map(function(key) {
@@ -400,11 +503,28 @@ function normRem_(r) {
   const s = String(r || '').trim();
   return !s || /^schimb/i.test(s) ? '' : s;
 }
-function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldTara, oldLoc, oldSofer, newData, newTara, newLoc, newSofer) {
+function ensureIstoricRemorciHeaders_(remSh) {
+  if (!remSh) return;
+  if (remSh.getMaxColumns() < 19) {
+    remSh.insertColumnsAfter(remSh.getMaxColumns(), 19 - remSh.getMaxColumns());
+  }
+  if (remSh.getLastRow() >= 1) {
+    const hdr = remSh.getRange(1, 18, 1, 2).getDisplayValues()[0];
+    if (!String(hdr[0] || '').trim()) {
+      remSh.getRange(1, 18).setValue('data incarcarii remorcii predate');
+    }
+    if (!String(hdr[1] || '').trim()) {
+      remSh.getRange(1, 19).setValue('data incarcarii remorcii preluate');
+    }
+  }
+}
+function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldTara, oldLoc, oldSofer, newData, newTara, newLoc, newSofer, oldDataInc, newDataInc) {
   const oldRem = normRem_(oldRemRaw);
   const newRem = normRem_(newRemRaw);
-  if (!oldRem && !newRem) return;
-  if (oldRem.toUpperCase() === newRem.toUpperCase()) return;
+  const oldRemKey = normKey_(oldRem);
+  const newRemKey = normKey_(newRem);
+  if (!oldRemKey && !newRemKey) return;
+  if (oldRemKey === newRemKey) return;
 
   let remSh = sheet_(TAB_IST_REM);
   if (!remSh) {
@@ -414,14 +534,17 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
       'Nr crt', 'Nr camion', 'remorca predata', 'remorca preluata',
       'data preluarii', 'localitatea', 'data predarii', 'tara descarcarii',
       'localitatea', 'data descarcarii', 'sofer care preda', 'cap tractor',
-      'sofer care preia', 'data preluarii', 'TARA', 'localitatea', 'data descarcareii'
+      'sofer care preia', 'data preluarii', 'TARA', 'localitatea', 'data descarcareii',
+      'data incarcarii remorcii predate', 'data incarcarii remorcii preluate'
     ]);
     remSh.setFrozenRows(1);
+  } else {
+    ensureIstoricRemorciHeaders_(remSh);
   }
 
   const todayStr = fmtRo_(azi_());
   const lastRow = Math.max(remSh.getLastRow(), 1);
-  const rows = lastRow > 1 ? remSh.getRange(2, 1, lastRow - 1, 17).getDisplayValues() : [];
+  const rows = lastRow > 1 ? remSh.getRange(2, 1, lastRow - 1, 19).getDisplayValues() : [];
 
   let maxNr = 0;
   for (let i = 0; i < rows.length; i++) {
@@ -433,14 +556,14 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
   }
 
   const cam = String(camion || '').trim();
-  const camionUp = cam.toUpperCase();
-  const newRemUp = newRem.toUpperCase();
-  const oldRemUp = oldRem.toUpperCase();
+  const camKey = normKey_(cam);
+  const oldIncStr = String(oldDataInc || '').trim();
+  const newIncStr = String(newDataInc || '').trim();
   let matchedPrevHandover = false;
 
-  if (newRem) {
+  if (newRemKey) {
     for (let i = rows.length - 1; i >= 0; i--) {
-      if (String(rows[i][2] || '').trim().toUpperCase() === newRemUp && !String(rows[i][11] || '').trim()) {
+      if (normKey_(rows[i][2]) === newRemKey && !String(rows[i][11] || '').trim()) {
         remSh.getRange(i + 2, 12, 1, 6).setValues([[
           cam,
           String(newSofer || '').trim(),
@@ -449,11 +572,14 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
           String(newLoc || '').trim(),
           String(newData || '').trim()
         ]]);
+        if (newIncStr) {
+          remSh.getRange(i + 2, 19).setValue(newIncStr);
+        }
         matchedPrevHandover = true;
         break;
       }
     }
-    if (!oldRem && !matchedPrevHandover) {
+    if (!oldRemKey && !matchedPrevHandover) {
       remSh.appendRow([
         maxNr + 1,
         cam,
@@ -471,24 +597,28 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
         todayStr,
         String(newTara || '').trim(),
         String(newLoc || '').trim(),
-        String(newData || '').trim()
+        String(newData || '').trim(),
+        '',
+        newIncStr
       ]);
+      invalidateCache_(TAB_IST_REM);
+      reconcileIstoricRemorci_();
       return;
     }
   }
 
-  if (oldRem) {
+  if (oldRemKey) {
     let dataPreluariiAnt = '';
     for (let i = rows.length - 1; i >= 0; i--) {
-      const rCam = String(rows[i][1] || '').trim().toUpperCase();
-      const rPred = String(rows[i][2] || '').trim().toUpperCase();
-      const rPrel = String(rows[i][3] || '').trim().toUpperCase();
-      const rCapPreia = String(rows[i][11] || '').trim().toUpperCase();
-      if (rCam === camionUp && rPrel === oldRemUp) {
+      const rCamKey = normKey_(rows[i][1]);
+      const rPredKey = normKey_(rows[i][2]);
+      const rPrelKey = normKey_(rows[i][3]);
+      const rCapPreiaKey = normKey_(rows[i][11]);
+      if (rCamKey === camKey && rPrelKey === oldRemKey) {
         dataPreluariiAnt = String(rows[i][13] || rows[i][6] || '').trim();
         break;
       }
-      if (rPred === oldRemUp && rCapPreia === camionUp) {
+      if (rPredKey === oldRemKey && rCapPreiaKey === camKey) {
         dataPreluariiAnt = String(rows[i][13] || '').trim();
         break;
       }
@@ -510,9 +640,192 @@ function logIstoricRemorci_(camion, oldRemRaw, newRemRaw, swapLoc, oldData, oldT
       '',
       '',
       '',
+      '',
+      oldIncStr,
       ''
     ]);
   }
+  invalidateCache_(TAB_IST_REM);
+  reconcileIstoricRemorci_();
+}
+
+function reconcileIstoricRemorci_() {
+  const remSh = sheet_(TAB_IST_REM);
+  if (!remSh || remSh.getLastRow() < 2) return false;
+  ensureIstoricRemorciHeaders_(remSh);
+  const rawIst = vals_(TAB_IST_REM, 19);
+  if (rawIst.length < 2) return false;
+
+  const p0 = plain_(rawIst[0] && rawIst[0][0]);
+  const p1 = plain_(rawIst[0] && rawIst[0][1]);
+  const hasHeader = p0.indexOf('nr') >= 0 || p1.indexOf('camion') >= 0;
+  const startIdx = hasHeader ? 1 : 0;
+
+  let hasBlankNeed = false;
+  for (let i = startIdx; i < rawIst.length; i++) {
+    const r = rawIst[i] || [];
+    if (normKey_(r[2]) && (!String(r[11] || '').trim() || !String(r[4] || '').trim() || !String(r[18] || '').trim())) {
+      hasBlankNeed = true;
+      break;
+    }
+  }
+  if (!hasBlankNeed) return false;
+
+  const curseRows = vals_(TAB_CURSE, 16);
+  const liveByTruckRem = {};
+  const liveByRem = {};
+  for (let i = 1; i < curseRows.length; i++) {
+    const r = curseRows[i] || [];
+    const parts = String(r[1] || '').split('/');
+    const cam = (parts[0] || '').trim();
+    const rem = normRem_(parts[1] || '');
+    const camKey = normKey_(cam);
+    const remKey = normKey_(rem);
+    if (!remKey) continue;
+    const info = {
+      cam: cam,
+      camKey: camKey,
+      sofer: String(r[7] || '').trim(),
+      tara: String(r[3] || '').trim(),
+      loc: String(r[4] || '').trim(),
+      dataDesc: String(r[2] || '').trim(),
+      dataInc: String(r[15] || '').trim()
+    };
+    if (camKey) liveByTruckRem[camKey + '|' + remKey] = info;
+    if (!liveByRem[remKey]) liveByRem[remKey] = [];
+    liveByRem[remKey].push(info);
+  }
+
+  const todayStr = fmtRo_(azi_());
+  let updated = false;
+
+  for (let i = startIdx; i < rawIst.length; i++) {
+    const row = rawIst[i] || [];
+    const remKey = normKey_(row[2]);
+    const camKey = normKey_(row[1]);
+    if (!remKey) continue;
+
+    if (!String(row[4] || '').trim() && camKey) {
+      let dataAnt = '';
+      for (let j = i - 1; j >= Math.max(startIdx, i - 40); j--) {
+        const jRow = rawIst[j] || [];
+        const pCam = normKey_(jRow[1]);
+        const pPrel = normKey_(jRow[3]);
+        const pPred = normKey_(jRow[2]);
+        const pCapPreia = normKey_(jRow[11]);
+        if (pCam === camKey && pPrel === remKey) {
+          dataAnt = String(jRow[13] || jRow[6] || '').trim();
+          break;
+        }
+        if (pPred === remKey && pCapPreia === camKey) {
+          dataAnt = String(jRow[13] || '').trim();
+          break;
+        }
+      }
+      if (dataAnt) {
+        remSh.getRange(i + 1, 5).setValue(dataAnt);
+        row[4] = dataAnt;
+        updated = true;
+      }
+    }
+
+    if (String(row[11] || '').trim()) {
+      if (!String(row[18] || '').trim()) {
+        const liveExisting = liveByTruckRem[normKey_(row[11]) + '|' + remKey];
+        if (liveExisting && liveExisting.dataInc) {
+          remSh.getRange(i + 1, 19).setValue(liveExisting.dataInc);
+          row[18] = liveExisting.dataInc;
+          updated = true;
+        }
+      }
+      continue;
+    }
+
+    let matchedIdx = -1;
+    for (let j = i + 1; j < rawIst.length; j++) {
+      if (normKey_(rawIst[j][2]) === remKey) break;
+      if (normKey_(rawIst[j][3]) === remKey && normKey_(rawIst[j][1]) !== camKey) {
+        matchedIdx = j;
+        break;
+      }
+    }
+
+    if (matchedIdx < 0) {
+      const handoverDate = parseRo_(row[6]);
+      for (let j = i - 1; j >= Math.max(startIdx, i - 30); j--) {
+        if (normKey_(rawIst[j][2]) === remKey) break;
+        const jCamKey = normKey_(rawIst[j][1]);
+        if (normKey_(rawIst[j][3]) === remKey && jCamKey !== camKey) {
+          const jDate = parseRo_(rawIst[j][6]);
+          const closeDates =
+            String(rawIst[j][6] || '').trim() === String(row[6] || '').trim() ||
+            Boolean(handoverDate && jDate && Math.abs(handoverDate.getTime() - jDate.getTime()) <= 3 * 86400000);
+          const activeInSheet1 = Boolean(liveByTruckRem[jCamKey + '|' + remKey]);
+          if (closeDates || activeInSheet1) {
+            matchedIdx = j;
+            break;
+          }
+        }
+      }
+    }
+
+    if (matchedIdx >= 0) {
+      const jRow = rawIst[matchedIdx] || [];
+      const pickupCam = String(jRow[1] || '').trim();
+      const pickupKey = normKey_(pickupCam);
+      const live = liveByTruckRem[pickupKey + '|' + remKey];
+      const pickupDate = String(jRow[6] || jRow[13] || row[6] || todayStr).trim();
+      const valsLQ = [
+        pickupCam,
+        live ? live.sofer : String(jRow[12] || '').trim(),
+        pickupDate,
+        live ? live.tara : String(jRow[14] || '').trim(),
+        live ? live.loc : String(jRow[15] || '').trim(),
+        live ? live.dataDesc : String(jRow[16] || '').trim()
+      ];
+      remSh.getRange(i + 1, 12, 1, 6).setValues([valsLQ]);
+      for (let c = 0; c < 6; c++) row[11 + c] = valsLQ[c];
+      const pickupLoad = (live && live.dataInc) || String(jRow[18] || '').trim();
+      if (pickupLoad && !String(row[18] || '').trim()) {
+        remSh.getRange(i + 1, 19).setValue(pickupLoad);
+        row[18] = pickupLoad;
+      }
+      updated = true;
+      continue;
+    }
+
+    let hasLaterHandover = false;
+    for (let k = i + 1; k < rawIst.length; k++) {
+      if (normKey_(rawIst[k][2]) === remKey) {
+        hasLaterHandover = true;
+        break;
+      }
+    }
+    if (!hasLaterHandover) {
+      const candidates = liveByRem[remKey] || [];
+      const cand = candidates.find(function(c) { return c.camKey && c.camKey !== camKey; });
+      if (cand) {
+        const valsLQ2 = [
+          cand.cam,
+          cand.sofer,
+          String(row[6] || '').trim() || todayStr,
+          cand.tara,
+          cand.loc,
+          cand.dataDesc
+        ];
+        remSh.getRange(i + 1, 12, 1, 6).setValues([valsLQ2]);
+        for (let c = 0; c < 6; c++) row[11 + c] = valsLQ2[c];
+        if (cand.dataInc && !String(row[18] || '').trim()) {
+          remSh.getRange(i + 1, 19).setValue(cand.dataInc);
+          row[18] = cand.dataInc;
+        }
+        updated = true;
+      }
+    }
+  }
+
+  if (updated) invalidateCache_(TAB_IST_REM);
+  return updated;
 }
 function normKey_(s) {
   return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -725,6 +1038,7 @@ function actualizeazaSheet1DinFlota() {
     if (s.getFrozenColumns() < 1) s.setFrozenColumns(1);
   });
   syncSheet1AutoFill_();
+  reconcileIstoricRemorci_();
   refreshRemorciLibere_();
   refreshZileCurseCamion_();
 }
@@ -768,20 +1082,24 @@ function onEdit(e) {
       const camNew = (newVal.split('/')[0] || '').trim() || (oldVal.split('/')[0] || '').trim();
       const oldRem = (oldVal.split('/')[1] || '').trim();
       const newRem = (newVal.split('/')[1] || '').trim();
-      logIstoricRemorci_(
-        camNew,
-        oldRem,
-        newRem,
-        '',
-        rowVals[2],
-        rowVals[3],
-        rowVals[4],
-        rowVals[7],
-        rowVals[2],
-        rowVals[3],
-        rowVals[4],
-        rowVals[7]
-      );
+      if (normKey_(normRem_(oldRem)) !== normKey_(normRem_(newRem))) {
+        logIstoricRemorci_(
+          camNew,
+          oldRem,
+          newRem,
+          '',
+          rowVals[2],
+          rowVals[3],
+          rowVals[4],
+          rowVals[7],
+          rowVals[2],
+          rowVals[3],
+          rowVals[4],
+          rowVals[7],
+          rowVals[15],
+          rowVals[15]
+        );
+      }
     }
   }
 
@@ -821,14 +1139,15 @@ function doGet(e) {
     refreshRemorciLibere_();
     refreshZileCurseCamion_();
   }
+  reconcileIstoricRemorci_();
   return out_({
-    scriptVersion: '3.5',
+    scriptVersion: '3.7',
     curse: vals_(TAB_CURSE, 16),
     vize: vizeRows_(),
     flota: vals_(TAB_FLOTA, 12),
     concediu: concediuRows_(),
     istoric: istoric_(),
-    istoricRemorci: vals_(TAB_IST_REM, 17),
+    istoricRemorci: vals_(TAB_IST_REM, 19),
     zileCurse: vals_('zile curse camion', 14)
   });
 }
@@ -938,7 +1257,13 @@ function deleteDriverVisasIfRemoved_(driverName, user) {
   }
   deleteVizeRowsSafe_(shV, rowMap, user, 'Ștergere Vize (Șofer șters)');
 }
+function ensureRowCapacity_(sh, row) {
+  if (sh && row > sh.getMaxRows()) {
+    sh.insertRowsAfter(sh.getMaxRows(), row - sh.getMaxRows());
+  }
+}
 function doPost(e) {
+  try {
   const b = JSON.parse((e && e.postData && e.postData.contents) || '{}');
   if ((b.key || '') !== PAROLA) return out_({ error: 'Parolă greșită' });
   if (b.action && b.action !== 'write') return out_({ error: 'Acțiune necunoscută' });
@@ -952,6 +1277,7 @@ function doPost(e) {
       sh.insertColumnsAfter(sh.getMaxColumns(), 16 - sh.getMaxColumns());
     }
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    ensureRowCapacity_(sh, row);
     const oldRow = b.row ? sh.getRange(row, 1, 1, 16).getDisplayValues()[0] : [];
     const before = oldRow.length ? oldRow.join(' | ') : '';
     const v16 = Array.from({ length: 16 }, (_, i) => String(vals[i] || ''));
@@ -973,7 +1299,9 @@ function doPost(e) {
       if (cellP.getBackground() === '#fef3c7') cellP.setBackground(null);
     }
     log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v16.join(' | '));
-    const remChanged = (oldRem || newRem) && oldRem.toUpperCase() !== newRem.toUpperCase();
+    const oldRemClean = normRem_(oldRem);
+    const newRemClean = normRem_(newRem);
+    const remChanged = (oldRemClean || newRemClean) && normKey_(oldRemClean) !== normKey_(newRemClean);
     if (remChanged) {
       logIstoricRemorci_(
         camNew,
@@ -987,9 +1315,35 @@ function doPost(e) {
         v16[2] || '',
         v16[3] || '',
         v16[4] || '',
-        v16[7] || ''
+        v16[7] || '',
+        oldRow[15] || '',
+        v16[15] || ''
       );
       invalidateCache_(TAB_IST_REM);
+    } else if (newRemClean && camNew) {
+      const remSh = sheet_(TAB_IST_REM);
+      if (remSh && remSh.getLastRow() >= 2) {
+        ensureIstoricRemorciHeaders_(remSh);
+        const istRows = vals_(TAB_IST_REM, 19);
+        const todayStr = fmtRo_(azi_());
+        const rKey = normKey_(newRemClean);
+        const cKey = normKey_(camNew);
+        for (let i = istRows.length - 1; i >= 1; i--) {
+          if (
+            normKey_(istRows[i][2]) === rKey &&
+            normKey_(istRows[i][11]) === cKey &&
+            String(istRows[i][13] || '').trim() === todayStr
+          ) {
+            remSh.getRange(i + 1, 13).setValue(v16[7] || '');
+            remSh.getRange(i + 1, 15, 1, 3).setValues([[v16[3] || '', v16[4] || '', v16[2] || '']]);
+            if (String(v16[15] || '').trim()) {
+              remSh.getRange(i + 1, 19).setValue(String(v16[15] || '').trim());
+            }
+            invalidateCache_(TAB_IST_REM);
+            break;
+          }
+        }
+      }
     }
     const trailerAffectsLibere =
       !b.row ||
@@ -1015,7 +1369,11 @@ function doPost(e) {
   if (b.kind === 'flota') {
     const sh = sheet_(TAB_FLOTA);
     if (!sh) return out_({ error: 'Foaia flota lipsește' });
+    if (sh.getMaxColumns() < 12) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), 12 - sh.getMaxColumns());
+    }
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    ensureRowCapacity_(sh, row);
     const oldRow = b.row ? sh.getRange(row, 1, 1, 12).getDisplayValues()[0] : [];
     const before = oldRow.length ? oldRow.join(' | ') : '';
     const deletedDriverTarget = String(b.deleteDriverVisas || '').trim();
@@ -1051,6 +1409,9 @@ function doPost(e) {
   if (b.kind === 'vize') {
     const sh = sheet_(TAB_VIZE);
     if (!sh) return out_({ error: 'Foaia vize medicale lipsește' });
+    if (sh.getMaxColumns() < 4) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), 4 - sh.getMaxColumns());
+    }
 
     if (Array.isArray(b.deleteRows) && b.deleteRows.length > 0) {
       const rowMap = {};
@@ -1065,6 +1426,7 @@ function doPost(e) {
     if (Array.isArray(b.batchValues) && b.batchValues.length > 0) {
       const layout = vizeLayout_(sh);
       const startRow = Math.max(sh.getLastRow() + 1, 2);
+      ensureRowCapacity_(sh, startRow + b.batchValues.length - 1);
       let maxNr = 0;
       if (layout.nrCol >= 0) {
         for (let r = layout.startRow - 1; r < layout.grid.length; r++) {
@@ -1092,6 +1454,7 @@ function doPost(e) {
     }
 
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
+    ensureRowCapacity_(sh, row);
     const before = b.row ? sh.getRange(row, 2, 1, 3).getDisplayValues()[0].join(' | ') : '';
     const v3 = [String(vals[0] || ''), String(vals[1] || ''), String(vals[2] || '')];
     if (!b.row) sh.getRange(row, 1).setValue(row - 1);
@@ -1135,22 +1498,25 @@ function doPost(e) {
   if (b.kind === 'istoricRemorci') {
     const sh = sheet_(TAB_IST_REM);
     if (!sh) return out_({ error: 'Foaia istoric remorci lipsește' });
-    if (sh.getMaxColumns() < 17) {
-      sh.insertColumnsAfter(sh.getMaxColumns(), 17 - sh.getMaxColumns());
-    }
+    ensureIstoricRemorciHeaders_(sh);
     const row = b.row ? Number(b.row) : sh.getLastRow() + 1;
-    const oldRow = b.row ? sh.getRange(row, 1, 1, 17).getDisplayValues()[0] : [];
+    ensureRowCapacity_(sh, row);
+    const oldRow = b.row ? sh.getRange(row, 1, 1, 19).getDisplayValues()[0] : [];
     const before = oldRow.length ? oldRow.join(' | ') : '';
-    const v17 = Array.from({ length: 17 }, (_, i) => String(vals[i] || ''));
-    if (!v17[0]) {
-      v17[0] = oldRow[0] ? String(oldRow[0]) : String(Math.max(1, row - 1));
+    const v19 = Array.from({ length: 19 }, (_, i) => String(vals[i] || ''));
+    if (!v19[0]) {
+      v19[0] = oldRow[0] ? String(oldRow[0]) : String(Math.max(1, row - 1));
     }
-    sh.getRange(row, 1, 1, 17).setValues([v17]);
+    sh.getRange(row, 1, 1, 19).setValues([v19]);
     invalidateCache_(TAB_IST_REM);
-    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v17.join(' | '));
+    log_(user, sh.getName(), row, b.row ? 'Modificare' : 'Adăugare', before, v19.join(' | '));
     refreshRemorciLibere_();
+    refreshZileCurseCamion_();
     return out_({ ok: true, row });
   }
 
   return out_({ error: 'Acțiune necunoscută' });
+  } catch (err) {
+    return out_({ error: 'Eroare Apps Script: ' + (err && err.message ? err.message : String(err)) });
+  }
 }

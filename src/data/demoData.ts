@@ -361,6 +361,8 @@ export function createDemoData(): GasPayload {
         'TARA',
         'localitatea',
         'data descarcareii',
+        'data incarcarii remorcii predate',
+        'data incarcarii remorcii preluate',
       ],
       [
         '1',
@@ -380,6 +382,8 @@ export function createDemoData(): GasPayload {
         'RO',
         'BUCURESTI',
         addDays(azi, 1),
+        addDays(azi, -3),
+        addDays(azi, -2),
       ],
       [
         '2',
@@ -398,6 +402,8 @@ export function createDemoData(): GasPayload {
         '',
         '',
         '',
+        '',
+        addDays(azi, -2),
         '',
       ],
       [
@@ -418,6 +424,8 @@ export function createDemoData(): GasPayload {
         'DE',
         'DE-26723 EMDEN',
         addDays(azi, -3),
+        addDays(azi, -6),
+        addDays(azi, -6),
       ],
       [
         '4',
@@ -437,6 +445,8 @@ export function createDemoData(): GasPayload {
         'FR',
         'FR-63100 CLERMONT-FERRAND',
         addDays(azi, -9),
+        addDays(azi, -14),
+        addDays(azi, -14),
       ],
       [
         '5',
@@ -456,6 +466,8 @@ export function createDemoData(): GasPayload {
         'FR',
         'FR-21200 BEAUNE',
         addDays(azi, -15),
+        addDays(azi, -19),
+        addDays(azi, -19),
       ],
       [
         '6',
@@ -475,6 +487,8 @@ export function createDemoData(): GasPayload {
         'IT',
         'IT-20867 CAPONAGO',
         addDays(azi, -20),
+        addDays(azi, -25),
+        addDays(azi, -25),
       ],
     ],
   };

@@ -37,6 +37,7 @@ import {
   fmtRoDateTime,
   isLeaveMatrix,
   LEAVE_TYPES,
+  normRemKey,
   normRo,
   parseLeaves,
   parseMonthLeaveCell,
@@ -45,6 +46,7 @@ import {
   parseVisas,
   parteNr,
   plainRo,
+  reconcileTrailerHistoryRows,
   splitDrivers,
   todayRo,
 } from './utils/roDates';
@@ -672,9 +674,12 @@ export default function App() {
       const newRemRaw = (String(values16[1] || '').split('/')[1] || '').trim();
       const oldRem = !oldRemRaw || /^schimb/i.test(oldRemRaw) ? '' : oldRemRaw;
       const newRem = !newRemRaw || /^schimb/i.test(newRemRaw) ? '' : newRemRaw;
+      const oldRemKey = normRemKey(oldRem);
+      const newRemKey = normRemKey(newRem);
       let nextIstoricRemorci = prev.istoricRemorci || [];
+      const todayStr = fmtRoDate(todayRo());
 
-      if ((oldRem || newRem) && oldRem.toUpperCase() !== newRem.toUpperCase()) {
+      if ((oldRem || newRem) && oldRemKey !== newRemKey) {
         nextIstoricRemorci = nextIstoricRemorci.map((r) => [...r]);
         const swapLoc = payload.loc || values16[4] || '';
         const swapLog = [
@@ -697,7 +702,6 @@ export default function App() {
         const camNew =
           (String(values16[1] || '').split('/')[0] || '').trim() ||
           (oldNr.split('/')[0] || '').trim();
-        const todayStr = fmtRoDate(todayRo());
         let maxNr = 0;
         for (let i = 1; i < nextIstoricRemorci.length; i++) {
           const a = String(nextIstoricRemorci[i]?.[0] || '').trim();
@@ -707,16 +711,17 @@ export default function App() {
         if (newRem) {
           for (let i = nextIstoricRemorci.length - 1; i >= 1; i--) {
             if (
-              String(nextIstoricRemorci[i]?.[2] || '').trim().toUpperCase() === newRem.toUpperCase() &&
+              normRemKey(nextIstoricRemorci[i]?.[2]) === newRemKey &&
               !String(nextIstoricRemorci[i]?.[11] || '').trim()
             ) {
-              while (nextIstoricRemorci[i].length < 17) nextIstoricRemorci[i].push('');
+              while (nextIstoricRemorci[i].length < 19) nextIstoricRemorci[i].push('');
               nextIstoricRemorci[i][11] = camNew;
               nextIstoricRemorci[i][12] = values16[7] || '';
               nextIstoricRemorci[i][13] = todayStr;
               nextIstoricRemorci[i][14] = values16[3] || '';
               nextIstoricRemorci[i][15] = values16[4] || '';
               nextIstoricRemorci[i][16] = values16[2] || '';
+              nextIstoricRemorci[i][18] = values16[15] || '';
               matchedPrev = true;
               break;
             }
@@ -740,6 +745,8 @@ export default function App() {
               values16[3] || '',
               values16[4] || '',
               values16[2] || '',
+              '',
+              values16[15] || '',
             ]);
           }
         }
@@ -762,7 +769,36 @@ export default function App() {
             '',
             '',
             '',
+            oldRowCells[15] || '',
+            '',
           ]);
+        }
+        nextIstoricRemorci = reconcileTrailerHistoryRows(
+          nextIstoricRemorci,
+          nextCurse,
+          todayStr
+        );
+      } else if (newRemKey && nextIstoricRemorci.length > 1) {
+        const camKey = normRemKey(
+          (String(values16[1] || '').split('/')[0] || '').trim()
+        );
+        if (camKey) {
+          nextIstoricRemorci = nextIstoricRemorci.map((r) => [...r]);
+          for (let i = nextIstoricRemorci.length - 1; i >= 1; i--) {
+            if (
+              normRemKey(nextIstoricRemorci[i]?.[2]) === newRemKey &&
+              normRemKey(nextIstoricRemorci[i]?.[11]) === camKey &&
+              String(nextIstoricRemorci[i]?.[13] || '').trim() === todayStr
+            ) {
+              while (nextIstoricRemorci[i].length < 19) nextIstoricRemorci[i].push('');
+              nextIstoricRemorci[i][12] = values16[7] || '';
+              nextIstoricRemorci[i][14] = values16[3] || '';
+              nextIstoricRemorci[i][15] = values16[4] || '';
+              nextIstoricRemorci[i][16] = values16[2] || '';
+              nextIstoricRemorci[i][18] = values16[15] || '';
+              break;
+            }
+          }
         }
       }
 
@@ -956,7 +992,7 @@ export default function App() {
   }) => {
     const userName = config.user || 'Dispecer';
     const nowStr = fmtRoDateTime(new Date());
-    const v17 = Array.from({ length: 17 }, (_, i) =>
+    const v19 = Array.from({ length: 19 }, (_, i) =>
       String(payload.values[i] || '')
     );
 
@@ -973,10 +1009,10 @@ export default function App() {
           ? nextIstRem[idx].join(' | ')
           : '';
       if (idx >= 0 && idx < nextIstRem.length) {
-        if (!v17[0] && nextIstRem[idx][0]) {
-          v17[0] = String(nextIstRem[idx][0]);
+        if (!v19[0] && nextIstRem[idx][0]) {
+          v19[0] = String(nextIstRem[idx][0]);
         }
-        nextIstRem[idx] = [...v17];
+        nextIstRem[idx] = [...v19];
       }
 
       const logRow = [
@@ -986,7 +1022,7 @@ export default function App() {
         String(payload.row),
         'Modificare',
         before,
-        v17.join(' | '),
+        v19.join(' | '),
       ];
 
       recentOptimisticLogsRef.current.push({
@@ -1009,7 +1045,7 @@ export default function App() {
         user: userName,
         kind: 'istoricRemorci',
         row: payload.row,
-        values: v17,
+        values: v19,
       });
     }
   };
@@ -1630,6 +1666,7 @@ export default function App() {
                   zileCurse={data.zileCurse || []}
                   trips={trips}
                   flota={data.flota}
+                  istoricRemorci={data.istoricRemorci || []}
                 />
               )}
 

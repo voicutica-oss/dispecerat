@@ -17,6 +17,7 @@ interface ZileCurseViewProps {
   zileCurse: string[][];
   trips: TripRecord[];
   flota: string[][];
+  istoricRemorci?: string[][];
 }
 
 const DEFAULT_HEADERS = [
@@ -36,15 +37,20 @@ const DEFAULT_HEADERS = [
   'TOTAL AN',
 ];
 
-export function ZileCurseView({ zileCurse, trips, flota }: ZileCurseViewProps) {
+export function ZileCurseView({
+  zileCurse,
+  trips,
+  flota,
+  istoricRemorci = [],
+}: ZileCurseViewProps) {
   const [search, setSearch] = useState('');
   const [selectedYear, setSelectedYear] = useState<number>(() =>
     todayRo().getFullYear()
   );
 
   const computed = useMemo(
-    () => computeTruckWorkedDays(trips, flota, selectedYear),
-    [trips, flota, selectedYear]
+    () => computeTruckWorkedDays(trips, flota, selectedYear, istoricRemorci),
+    [trips, flota, selectedYear, istoricRemorci]
   );
 
   const useLiveCalculation = trips.length > 0;
