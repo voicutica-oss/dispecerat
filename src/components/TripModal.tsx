@@ -291,6 +291,15 @@ export function TripModal({
     }
   };
 
+  const handleRemorcaGoala = () => {
+    setDataIncarcarii('');
+    setDataText('');
+    setTara('');
+    setLocalitate('');
+    setConfirmMissingLoadDate(false);
+    setAutoFilledTrailer(null);
+  };
+
   const handleTrailerChange = (nextRem: string) => {
     setRemorca(nextRem);
     const trimmed = nextRem.trim();
@@ -311,13 +320,6 @@ export function TripModal({
     }
 
     if (!trimmed || /^schimb/i.test(trimmed)) {
-      if (hadRealOldTrailer || autoFilledTrailer) {
-        setDataIncarcarii('');
-        setDataText('');
-        setTara('');
-        setLocalitate('');
-        setConfirmMissingLoadDate(false);
-      }
       setAutoFilledTrailer(null);
       return;
     }
@@ -341,13 +343,6 @@ export function TripModal({
       setConfirmMissingLoadDate(false);
       setAutoFilledTrailer(trimmed);
     } else {
-      if (hadRealOldTrailer || autoFilledTrailer) {
-        setDataIncarcarii('');
-        setDataText('');
-        setTara('');
-        setLocalitate('');
-        setConfirmMissingLoadDate(false);
-      }
       setAutoFilledTrailer(null);
     }
   };
@@ -494,15 +489,6 @@ export function TripModal({
       return;
     }
 
-    if (
-      !isSpecialStatus &&
-      !dataIncarcarii.trim() &&
-      (Boolean(remorca.trim()) || Boolean(dataText.trim()))
-    ) {
-      setConfirmMissingLoadDate(true);
-      return;
-    }
-
     await performSave();
   };
 
@@ -591,9 +577,18 @@ export function TripModal({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Remorcă / SCHIMB
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-slate-700">
+                  Remorcă / SCHIMB
+                </label>
+                <button
+                  type="button"
+                  onClick={handleRemorcaGoala}
+                  className="text-[11px] font-medium text-blue-700 hover:text-blue-800 underline"
+                >
+                  Remorcă goală
+                </button>
+              </div>
               <input
                 type="text"
                 list="fleet-trailers-list"
@@ -1076,45 +1071,7 @@ export function TripModal({
             </div>
           )}
 
-          {confirmMissingLoadDate && (
-            <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-3 text-xs text-amber-950">
-              <div className="flex items-start gap-2.5">
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-700" />
-                <div>
-                  <div className="font-semibold text-amber-950">
-                    Nu ai salvat data încărcării!
-                  </div>
-                  <div className="text-amber-800 mt-0.5">
-                    Câmpul <strong>Data încărcării (coloana P)</strong> este gol. Poți completa data acum sau poți salva cursa și fără ea.
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfirmMissingLoadDate(false);
-                    loadDateInputRef.current?.focus();
-                    loadDateInputRef.current?.scrollIntoView({
-                      behavior: 'smooth',
-                      block: 'center',
-                    });
-                  }}
-                  className="px-3.5 py-2 text-xs font-medium text-amber-900 bg-white border border-amber-300 rounded-lg hover:bg-amber-100"
-                >
-                  Completează data
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={performSave}
-                  className="px-3.5 py-2 text-xs font-semibold text-white bg-amber-700 rounded-lg hover:bg-amber-800 disabled:opacity-50"
-                >
-                  {saving ? 'Se salvează...' : 'Salvează fără data încărcării'}
-                </button>
-              </div>
-            </div>
-          )}
+
 
           <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
             <button
