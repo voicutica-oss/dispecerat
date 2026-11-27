@@ -1,6 +1,6 @@
 import type { GasMutatePayload, GasPayload } from '../types/fleet';
 
-function isNativeShell(): boolean {
+function isDirectGasEnvironment(): boolean {
   if (typeof window === 'undefined') return false;
   if (window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
     return true;
@@ -8,7 +8,15 @@ function isNativeShell(): boolean {
   const cap = (window as unknown as {
     Capacitor?: { isNativePlatform?: () => boolean };
   }).Capacitor;
-  return Boolean(cap?.isNativePlatform?.());
+  if (cap?.isNativePlatform?.()) return true;
+  if (import.meta.env.VITE_STATIC_HOST === 'true') return true;
+  const host = window.location.hostname.toLowerCase();
+  return (
+    host.endsWith('.github.io') ||
+    host.endsWith('.pages.dev') ||
+    host.endsWith('.vercel.app') ||
+    host.endsWith('.netlify.app')
+  );
 }
 
 function validateGasUrlClient(rawUrl: string): URL {
@@ -54,6 +62,7 @@ async function directGasSync(scriptUrl: string, key: string): Promise<Record<str
   const res = await fetch(target.toString(), {
     method: 'GET',
     redirect: 'follow',
+    cache: 'no-store',
   });
   const data = await parseDirectGasResponse(res);
   if (data && typeof data === 'object' && 'error' in data && data.error) {
@@ -122,7 +131,7 @@ export async function syncFromGas(
   scriptUrl: string,
   key: string
 ): Promise<GasPayload> {
-  if (isNativeShell()) {
+  if (isDirectGasEnvironment()) {
     const data = await directGasSync(scriptUrl, key);
     return normalizeGasPayload(data);
   }
@@ -172,7 +181,7 @@ export async function mutateGas(
   scriptUrl: string,
   payload: GasMutatePayload
 ): Promise<{ ok: boolean }> {
-  if (isNativeShell()) {
+  if (isDirectGasEnvironment()) {
     return directGasMutate(scriptUrl, payload);
   }
 

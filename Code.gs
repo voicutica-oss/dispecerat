@@ -158,7 +158,7 @@ function recalcConcediuRow_(sh, row, meta) {
     const txt = String(rowVals[cIdx] || '').trim();
     if (!txt) continue;
     const seenAll = {}, seenType = { CO: {}, CM: {}, L: {}, CFP: {} };
-    txt.split(/[;\n]+/).forEach(clause => {
+    txt.split(/;|\r?\n/).forEach(clause => {
       let activeType = 'CO';
       clause.split(',').forEach(rawSeg => {
         const det = detectLeavePrefix_(rawSeg);
