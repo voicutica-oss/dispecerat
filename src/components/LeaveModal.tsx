@@ -262,7 +262,7 @@ export function LeaveModal({
                 list="leave-drivers-list"
                 value={nume}
                 onChange={(e) => handleDriverChange(e.target.value)}
-                placeholder="ex. AVRAMUT DANIEL-ROBERT"
+                placeholder="ex. POPESCU ION"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
               <datalist id="leave-drivers-list">

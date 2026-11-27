@@ -535,7 +535,7 @@ export function TripModal({
                 list="fleet-trucks-list"
                 value={camion}
                 onChange={(e) => handleCamionChange(e.target.value)}
-                placeholder="ex. SB-01-TLN"
+                placeholder="ex. XX-01-AAA"
                 className="w-full px-3 py-2.5 font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
               <datalist id="fleet-trucks-list">
@@ -554,7 +554,7 @@ export function TripModal({
                 list="fleet-trailers-list"
                 value={remorca}
                 onChange={(e) => handleTrailerChange(e.target.value)}
-                placeholder="ex. SB-09-TAL sau SCHIMB"
+                placeholder="ex. XX-91-REM sau SCHIMB"
                 className="w-full px-3 py-2.5 font-mono text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
               <datalist id="fleet-trailers-list">
@@ -664,7 +664,7 @@ export function TripModal({
                 list="fleet-drivers-list"
                 value={sofer1}
                 onChange={(e) => handleDriversChange(e.target.value, sofer2)}
-                placeholder="ex. PACURARIU MIHAIL-DANIEL"
+                placeholder="ex. POPESCU ION"
                 className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
               <datalist id="fleet-drivers-list">
@@ -910,7 +910,7 @@ export function TripModal({
                 rows={2}
                 value={obs}
                 onChange={(e) => setObs(e.target.value)}
-                placeholder="ex. PLECAT CU SB26TTA, CO, SCHIMB ULEI"
+                placeholder="ex. PLECAT CU XX02BBB, CO, SCHIMB ULEI"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
               />
             </div>
